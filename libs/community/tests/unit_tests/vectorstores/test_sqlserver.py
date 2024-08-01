@@ -15,7 +15,7 @@ _CONNECTION_STRING = str(os.environ.get("TEST_AZURESQLSERVER_CONNECTION_STRING")
 def store() -> SQLServer_VectorStore:
     """Setup resources that are needed for the duration of the test."""
     store = SQLServer_VectorStore(
-        connection_string=_CONNECTION_STRING,
+        connection=_CONNECTION_STRING,
         embedding_function=FakeEmbeddings(size=1536),
         table_name="langchain_vector_store_tests",
     )

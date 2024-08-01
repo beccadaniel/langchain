@@ -1,11 +1,12 @@
 from typing import Any, Iterable, List, Optional, Type, Union
 
+from azure.identity import DefaultAzureCredential
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VST, VectorStore
-from sqlalchemy import Column, Uuid, bindparam, create_engine, text
+from sqlalchemy import Column, Uuid, bindparam, create_engine, event, text
 from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARBINARY, VARCHAR
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -16,12 +17,16 @@ except ImportError:
 
 import json
 import logging
+import struct
 import uuid
 
 Base = declarative_base()  # type: Any
 
 _embedding_store: Any = None
 
+AZURE_TOKEN_URL = "https://database.windows.net/.default" # Token URL for Azure DBs.
+EXTRA_PARAMS = ";Trusted_Connection=Yes"
+SQL_COPT_SS_ACCESS_TOKEN = 1256 # Connection option defined by microsoft in msodbcsql.h
 
 class SQLServer_VectorStore(VectorStore):
     """SQL Server Vector Store.
@@ -34,33 +39,31 @@ class SQLServer_VectorStore(VectorStore):
     def __init__(
         self,
         *,
-        connection: Optional[Connection] = None,
-        connection_string: str,
+        connection: Union[Engine, str],
         embedding_function: Embeddings,
         table_name: str,
     ) -> None:
         """Initialize the SQL Server vector store.
 
         Args:
-            connection: Optional SQLServer connection.
-            connection_string: SQLServer connection string.
+            connection: SQLServer connection string or an `Engine` object.
             embedding_function: Any embedding function implementing
                 `langchain.embeddings.base.Embeddings` interface.
             table_name: The name of the table to use for storing embeddings.
 
         """
 
-        self.connection_string = connection_string
         self.embedding_function = embedding_function
         self.table_name = table_name
-        self._bind: Union[Connection, Engine] = (
-            connection if connection else self._create_engine()
+        self._bind: Engine = (
+            connection if isinstance(connection, Engine)
+            else self._create_engine(connection)
         )
         self.EmbeddingStore = self._get_embedding_store(table_name)
         self._create_table_if_not_exists()
 
-    def _create_engine(self) -> Engine:
-        return create_engine(url=self.connection_string, echo=True)
+    def _create_engine(self, connection_url: str) -> Engine:
+        return create_engine(url=connection_url, echo=True)
 
     def _create_table_if_not_exists(self) -> None:
         logging.info("Creating table %s", self.table_name)
@@ -199,3 +202,24 @@ class SQLServer_VectorStore(VectorStore):
         except DBAPIError as e:
             logging.error(e.__cause__)
         return ids
+
+    @event.listens_for(Engine, "do_connect")
+    def _provide_token(dialect, conn_rec, cargs, cparams) -> None:
+        """Gets token for SQLServer connection from token URL,
+            and use the token to connect to the database."""
+        credential = DefaultAzureCredential()
+
+        # Remove Trusted_Connection param that SQLAlchemy adds to 
+        # the connection string by default.
+        cargs[0] = cargs[0].replace(EXTRA_PARAMS, "")
+ 
+        # Create credential token
+        token_bytes = credential.get_token(AZURE_TOKEN_URL).token.encode("utf-16-le")
+        token_struct = struct.pack(
+            f'<I{len(token_bytes)}s',
+            len(token_bytes),
+            token_bytes
+        )      
+
+        # Apply credential token to keyword argument
+        cparams["attrs_before"] = {SQL_COPT_SS_ACCESS_TOKEN: token_struct}
