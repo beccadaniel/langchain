@@ -110,7 +110,7 @@ def test_sqlserver_add_texts_when_list_of_given_id_is_less_than_list_of_texts(
 
     # List of ids is 3 and is less than len(texts) which is 5.
     metadatas = [
-        {"id": 1, "soure": "book review", "length": 11},
+        {"id": 1, "source": "book review", "length": 11},
         {"id": 2, "source": "random texts", "length": 9},
         {"source": "household list", "length": 5},
         {"id": 6, "source": "newspaper page", "length": 44},
