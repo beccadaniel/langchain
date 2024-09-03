@@ -1,7 +1,9 @@
 """Test SQLServer_VectorStore functionality."""
 
 import os
-from typing import Generator, List
+from typing import Any, Dict, Generator, List
+from unittest import mock
+from unittest.mock import Mock
 
 import pytest
 from langchain_core.documents import Document
@@ -12,8 +14,39 @@ from langchain_community.vectorstores.sqlserver import (
     DistanceStrategy,
     SQLServer_VectorStore,
 )
+from tests.integration_tests.vectorstores.fixtures.filtering_test_cases import (
+    IDS as filter_ids,
+)
+from tests.integration_tests.vectorstores.fixtures.filtering_test_cases import (
+    TYPE_1_FILTERING_TEST_CASES,
+    TYPE_2_FILTERING_TEST_CASES,
+    TYPE_3_FILTERING_TEST_CASES,
+    TYPE_4_FILTERING_TEST_CASES,
+    TYPE_5_FILTERING_TEST_CASES,
+)
+from tests.integration_tests.vectorstores.fixtures.filtering_test_cases import (
+    metadatas as filter_metadatas,
+)
+from tests.integration_tests.vectorstores.fixtures.filtering_test_cases import (
+    texts as filter_texts,
+)
 
+# Connection String values should be provided in the
+# environment running this test suite.
+#
 _CONNECTION_STRING = str(os.environ.get("TEST_AZURESQLSERVER_CONNECTION_STRING"))
+_CONNECTION_STRING_WITH_UID_AND_PWD = str(
+    os.environ.get("TEST_AZURESQLSERVER_CONNECTION_STRING_WITH_UID")
+)
+_CONNECTION_STRING_WITH_TRUSTED_CONNECTION = str(
+    os.environ.get("TEST_AZURESQLSERVER_TRUSTED_CONNECTION")
+)
+_ENTRA_ID_CONNECTION_STRING_NO_PARAMS = str(
+    os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_NO_PARAMS")
+)
+_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO = str(
+    os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO")
+)
 _SCHEMA = "lc_test"
 _COLLATION_DB_NAME = "LangChainCollationTest"
 _TABLE_NAME = "langchain_vector_store_tests"
@@ -30,6 +63,21 @@ _DROP_COLLATION_DB_QUERY = f"drop database {_COLLATION_DB_NAME}"
 _SYS_TABLE_QUERY = """
 select object_id from sys.tables where name = '%s'
 and schema_name(schema_id) = '%s'"""
+
+
+# Combine all test cases into one list with additional debugging
+FILTERING_TEST_CASES: List[Any] = []
+for filterList in [
+    TYPE_1_FILTERING_TEST_CASES,
+    TYPE_2_FILTERING_TEST_CASES,
+    TYPE_3_FILTERING_TEST_CASES,
+    TYPE_4_FILTERING_TEST_CASES,
+    TYPE_5_FILTERING_TEST_CASES,
+]:
+    if isinstance(filterList, list):
+        for filters in filterList:
+            if isinstance(filters, tuple):
+                FILTERING_TEST_CASES.append(filters)
 
 
 @pytest.fixture
@@ -217,26 +265,14 @@ def test_that_add_text_fails_if_text_embedding_length_is_not_equal_to_embedding_
 
 def test_sqlserver_delete_text_by_id_valid_ids_provided(
     store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
 ) -> None:
     """Test that delete API deletes texts by id."""
-    texts = [
-        "Good review",
-        "new books",
-        "table",
-        "Sunglasses are a form of protective eyewear.",
-        "It's a new year.",
-    ]
 
-    metadatas = [
-        {"id": 100, "source": "book review", "length": 11},
-        {"id": 200, "source": "random texts", "length": 9},
-        {"id": 200, "source": "household list", "length": 5},
-        {"id": 600, "source": "newspaper page", "length": 44},
-        {"id": 300, "source": "random texts", "length": 16},
-    ]
     store.add_texts(texts, metadatas)
 
-    result = store.delete(["100", "200", "600"])
+    result = store.delete(["1", "2", "5"])
     # Should return true since valid ids are given
     if result:
         pass
@@ -244,26 +280,14 @@ def test_sqlserver_delete_text_by_id_valid_ids_provided(
 
 def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
     store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
 ) -> None:
     """Test that delete API deletes texts by id."""
-    texts = [
-        "Good review",
-        "new books",
-        "table",
-        "Sunglasses are a form of protective eyewear.",
-        "It's a new year.",
-    ]
 
-    metadatas = [
-        {"id": 100, "source": "book review", "length": 11},
-        {"id": 200, "source": "random texts", "length": 9},
-        {"id": 200, "source": "household list", "length": 5},
-        {"id": 600, "source": "newspaper page", "length": 44},
-        {"id": 300, "source": "random texts", "length": 16},
-    ]
     store.add_texts(texts, metadatas)
 
-    result = store.delete(["100", "200", "600", "900"])
+    result = store.delete(["1", "2", "6", "9"])
     # Should return true since valid ids are given
     if result:
         pass
@@ -271,23 +295,11 @@ def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
 
 def test_sqlserver_delete_text_by_id_invalid_ids_provided(
     store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
 ) -> None:
     """Test that delete API deletes texts by id."""
-    texts = [
-        "Good review",
-        "new books",
-        "table",
-        "Sunglasses are a form of protective eyewear.",
-        "It's a new year.",
-    ]
 
-    metadatas = [
-        {"id": 100, "source": "book review", "length": 11},
-        {"id": 200, "source": "random texts", "length": 9},
-        {"id": 200, "source": "household list", "length": 5},
-        {"id": 600, "source": "newspaper page", "length": 44},
-        {"id": 300, "source": "random texts", "length": 16},
-    ]
     store.add_texts(texts, metadatas)
 
     result = store.delete(["100000"])
@@ -298,25 +310,14 @@ def test_sqlserver_delete_text_by_id_invalid_ids_provided(
 
 def test_sqlserver_delete_text_by_id_no_ids_provided(
     store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
 ) -> None:
     """Test that delete API deletes texts by id."""
-    texts = [
-        "Good review",
-        "new books",
-        "table",
-        "Sunglasses are a form of protective eyewear.",
-        "It's a new year.",
-    ]
 
-    metadatas = [
-        {"id": 100, "source": "book review", "length": 11},
-        {"id": 200, "source": "random texts", "length": 9},
-        {"id": 200, "source": "household list", "length": 5},
-        {"id": 600, "source": "newspaper page", "length": 44},
-        {"id": 300, "source": "random texts", "length": 16},
-    ]
-    result = store.add_texts(texts, metadatas)
+    store.add_texts(texts, metadatas)
 
+    result = store.delete(None)
     # Should return False, since empty list of ids given
     if not result:
         pass
@@ -506,3 +507,183 @@ def test_that_case_sensitivity_does_not_affect_distance_strategy(
     conn.execute(text("use master"))
     conn.execute(text(_DROP_COLLATION_DB_QUERY))
     conn.close()
+
+
+def test_sqlserver_with_no_metadata_filters(store: SQLServer_VectorStore) -> None:
+    store.add_texts(filter_texts, None, filter_ids)
+    try:
+        test_filter: Dict[str, Any] = {"id": 1}
+        expected_ids: List[int] = []
+        docs = store.similarity_search("meow", k=5, filter=test_filter)
+        returned_ids = [doc.metadata["id"] for doc in docs]
+        assert sorted(returned_ids) == sorted(expected_ids), test_filter
+
+    finally:
+        store.delete(["1", "2", "3"])
+
+
+@pytest.mark.parametrize("test_filter, expected_ids", FILTERING_TEST_CASES)
+def test_sqlserver_with_metadata_filters(
+    store: SQLServer_VectorStore,
+    test_filter: Dict[str, Any],
+    expected_ids: List[int],
+) -> None:
+    store.add_texts(filter_texts, filter_metadatas, filter_ids)
+    try:
+        docs = store.similarity_search("meow", k=5, filter=test_filter)
+        returned_ids = [doc.metadata["id"] for doc in docs]
+        assert sorted(returned_ids) == sorted(expected_ids), test_filter
+
+    finally:
+        store.delete(["1", "2", "3"])
+
+
+@pytest.mark.parametrize(
+    "invalid_filter",
+    [
+        ["hello"],
+        {
+            "id": 2,
+            "$name": "foo",
+        },
+        {"$or": {}},
+        {"$and": {}},
+        {"$between": {}},
+        {"$eq": {}},
+        {"$or": None},
+    ],
+)
+def test_invalid_filters(
+    store: SQLServer_VectorStore, invalid_filter: Dict[str, Any]
+) -> None:
+    """Verify that invalid filters raise an error."""
+    store.add_texts(filter_texts, filter_metadatas, filter_ids)
+    store.delete(["1", "2", "3"])
+    with pytest.raises(ValueError):
+        store.similarity_search("meow", k=5, filter=invalid_filter)
+
+
+def test_that_rows_with_duplicate_custom_id_cannot_be_entered(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+) -> None:
+    """Test that if a row is specified with existing ID in the table,
+    `add_texts` fails."""
+    metadatas = [
+        {"id": 1, "summary": "Good Quality Dog Food"},
+        {"id": 2, "summary": "Nasty No flavor"},
+        {"id": 2, "summary": "stale product"},
+        {"id": 4, "summary": "Great value and convenient ramen"},
+        {"id": 5, "summary": "Great for the kids!"},
+    ]
+    with pytest.raises(Exception):
+        store.add_texts(texts, metadatas)
+
+
+def test_that_entra_id_authentication_connection_is_successful(
+    texts: List[str],
+) -> None:
+    """Test that given a valid entra id auth string, connection to DB is successful."""
+    vector_store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
+    vector_store.add_texts(texts)
+
+    # drop vector_store
+    vector_store.drop()
+
+
+# We need to mock this so that actual connection is not attempted
+# after mocking _provide_token.
+@mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
+)
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
+)
+def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_is_used(
+    prep_data_type: Mock,
+    provide_token: Mock,
+    dialect_initialize: Mock,
+) -> None:
+    """Test that if a valid entra_id connection string is passed in
+    to SQLServer_VectorStore object, entra id authentication is used
+    and connection is successful."""
+
+    # Connection string is of the form below.
+    # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
+    # ?driver=ODBC+Driver+17+for+SQL+Server"
+    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
+    # _provide_token is called only during Entra ID authentication.
+    provide_token.assert_called()
+
+    # reset the mock so that it can be reused.
+    provide_token.reset_mock()
+
+    # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
+    # ?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=no"
+    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO)
+    provide_token.assert_called()
+
+
+# We need to mock this so that actual connection is not attempted
+# after mocking _provide_token.
+@mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
+)
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
+)
+def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_used(
+    prep_data_type: Mock,
+    provide_token: Mock,
+    dialect_initialize: Mock,
+) -> None:
+    """Test that if a connection string is provided to SQLServer_VectorStore object,
+    and connection string has username and password, entra id authentication is not
+    used and connection is successful."""
+
+    # Connection string contains username and password,
+    # mssql+pyodbc://username:password@lc-test.database.windows.net,1433/lcvectorstore
+    # ?driver=ODBC+Driver+17+for+SQL+Server"
+    connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
+
+    # _provide_token is called only during Entra ID authentication.
+    provide_token.assert_not_called()
+
+
+# We need to mock this so that actual connection is not attempted
+# after mocking _provide_token.
+@mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
+)
+@mock.patch(
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
+)
+def test_that_connection_string_with_trusted_connection_yes_does_not_use_entra_id_auth(
+    prep_data_type: Mock,
+    provide_token: Mock,
+    dialect_initialize: Mock,
+) -> None:
+    """Test that if a connection string is provided to SQLServer_VectorStore object,
+    and connection string has `trusted_connection` set to `yes`, entra id
+    authentication is not used and connection is successful."""
+
+    # Connection string is of the form below.
+    # mssql+pyodbc://@lc-test.database.windows.net,1433/lcvectorstore
+    # ?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
+    connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
+
+    # _provide_token is called only during Entra ID authentication.
+    provide_token.assert_not_called()
+
+
+def connect_to_vector_store(conn_string: str) -> SQLServer_VectorStore:
+    return SQLServer_VectorStore(
+        connection_string=conn_string,
+        embedding_length=EMBEDDING_LENGTH,
+        # FakeEmbeddings returns embeddings of the same size as `embedding_length`.
+        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        table_name=_TABLE_NAME,
+    )
