@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import (
     Any,
@@ -322,14 +324,120 @@ class SQLServer_VectorStore(VectorStore):
 
     @classmethod
     def from_texts(
-        cls: Type[VST],
-        texts: List[str],
+        cls: Type[SQLServer_VectorStore],
+        connection_string: str,
         embedding: Embeddings,
+        embedding_length: int,
+        table_name: str,
+        texts: List[str],
+        db_schema: Optional[str] = None,
+        distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         metadatas: Optional[List[dict]] = None,
+        ids: Optional[List[str]] = None,
         **kwargs: Any,
-    ) -> VST:
-        """Return VectorStore initialized from texts and embeddings."""
-        return super().from_texts(texts, embedding, metadatas, **kwargs)
+    ) -> SQLServer_VectorStore:
+        """Create a SQL Server vectorStore initialized from texts and embeddings.
+
+        Args:
+            connection_string: SQLServer connection string.
+                If the connection string does not contain a username & password
+                or `Trusted_Connection=yes`, Entra ID authentication is used.
+                Sample connection string format:
+                "mssql+pyodbc://username:password@servername/dbname?other_params"
+            embedding: Any embedding function implementing
+                `langchain.embeddings.base.Embeddings` interface.
+            embedding_length: The length (dimension) of the vectors to be stored in the
+                table.
+                Note that only vectors of same size can be added to the vector store.
+            table_name: The name of the table to use for storing embeddings.
+            texts: Iterable of strings to add into the vectorstore.
+            db_schema: The schema in which the vector store will be created.
+                This schema must exist and the user must have permissions to the schema.
+            distance_strategy: The distance strategy to use for comparing embeddings.
+                Default value is COSINE. Available options are:
+                - COSINE
+                - DOT
+                - EUCLIDEAN
+            metadatas: Optional list of metadatas (python dicts) associated
+                with the input texts.
+            ids: Optional list of IDs for the input texts.
+            **kwargs: vectorstore specific parameters.
+
+        Returns:
+            SQLServer_VectorStore: A SQL Server vectorstore.
+        """
+
+        store = cls(
+            connection_string=connection_string,
+            db_schema=db_schema,
+            distance_strategy=distance_strategy,
+            embedding_function=embedding,
+            embedding_length=embedding_length,
+            table_name=table_name,
+            **kwargs,
+        )
+
+        store.add_texts(texts, metadatas, ids, **kwargs)
+        return store
+    
+    @classmethod
+    def from_documents(
+        cls: Type[SQLServer_VectorStore],
+        connection_string: str,
+        documents: List[Document],
+        embedding: Embeddings,
+        embedding_length: int,
+        table_name: str,
+        db_schema: Optional[str] = None,
+        distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
+        ids: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> SQLServer_VectorStore:
+        """Create a SQL Server vectorStore initialized from texts and embeddings.
+
+        Args:
+            connection_string: SQLServer connection string.
+                If the connection string does not contain a username & password
+                or `Trusted_Connection=yes`, Entra ID authentication is used.
+                Sample connection string format:
+                "mssql+pyodbc://username:password@servername/dbname?other_params"
+            documents: Documents to add to the vectorstore.
+            embedding: Any embedding function implementing
+                `langchain.embeddings.base.Embeddings` interface.
+            embedding_length: The length (dimension) of the vectors to be stored in the
+                table.
+                Note that only vectors of same size can be added to the vector store.
+            table_name: The name of the table to use for storing embeddings.
+            texts: Iterable of strings to add into the vectorstore.
+            db_schema: The schema in which the vector store will be created.
+                This schema must exist and the user must have permissions to the schema.
+            distance_strategy: The distance strategy to use for comparing embeddings.
+                Default value is COSINE. Available options are:
+                - COSINE
+                - DOT
+                - EUCLIDEAN
+            ids: Optional list of IDs for the input texts.
+            **kwargs: vectorstore specific parameters.
+
+        Returns:
+            SQLServer_VectorStore: A SQL Server vectorstore.
+        """
+        
+        texts = [doc.page_content for doc in documents]
+        metadatas = [doc.metadata for doc in documents]
+
+        store = cls(
+            connection_string=connection_string,
+            db_schema=db_schema,
+            distance_strategy=distance_strategy,
+            embedding_function=embedding,
+            embedding_length=embedding_length,
+            table_name=table_name,
+            **kwargs,
+        )
+
+        store.add_texts(texts, metadatas, ids, **kwargs)
+        return store
 
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any

@@ -233,6 +233,9 @@ if TYPE_CHECKING:
     from langchain_community.vectorstores.sqlitevss import (
         SQLiteVSS,
     )
+    from langchain_community.vectorstores.sqlserver import (
+        SQLServer_VectorStore,
+    )
     from langchain_community.vectorstores.starrocks import (
         StarRocks,
     )
@@ -382,6 +385,7 @@ __all__ = [
     "SKLearnVectorStore",
     "SQLiteVSS",
     "ScaNN",
+    "SQLServer_VectorStore"
     "SemaDB",
     "SingleStoreDB",
     "StarRocks",
@@ -484,6 +488,7 @@ _module_lookup = {
     "Rockset": "langchain_community.vectorstores.rocksetdb",
     "SKLearnVectorStore": "langchain_community.vectorstores.sklearn",
     "SQLiteVSS": "langchain_community.vectorstores.sqlitevss",
+    "SQLServer_VectorStore": "langchain_community.vectorstores.sqlserver",
     "ScaNN": "langchain_community.vectorstores.scann",
     "SemaDB": "langchain_community.vectorstores.semadb",
     "SingleStoreDB": "langchain_community.vectorstores.singlestoredb",
