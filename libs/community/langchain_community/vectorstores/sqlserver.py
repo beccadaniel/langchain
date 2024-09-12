@@ -45,6 +45,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
 from sqlalchemy.sql import operators
+from sqlalchemy.types import UserDefinedType
 
 try:
     from sqlalchemy.orm import declarative_base
@@ -99,6 +100,28 @@ class DistanceStrategy(str, Enum):
     DOT = "dot"
 
 
+class VectorType(UserDefinedType):
+    cache_ok = True
+
+    def __init__(self, length: int):
+        self.length = length
+
+    def get_col_spec(self, **kw):
+        return "vector(%s)" % self.length
+
+    def bind_processor(self, dialect):
+        def process(value):
+            return value
+
+        return process
+
+    def result_processor(self, dialect, coltype):
+        def process(value):
+            return value
+
+        return process
+
+
 # String Constants
 #
 AZURE_TOKEN_URL = "https://database.windows.net/.default"  # Token URL for Azure DBs.
@@ -126,8 +149,6 @@ SERVER_JSON_CHECK_QUERY = "select name from sys.types where system_type_id = 244
 VECTOR_TYPE_CHECK_QUERY = (
     "select name from sys.types where system_type_id = 165 and user_type_id = 255"
 )
-VECTOR_DISTANCE_QUERY = f"""
-VECTOR_DISTANCE(:{DISTANCE_STRATEGY}, JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
 
 
 class SQLServer_VectorStore(VectorStore):
@@ -185,7 +206,7 @@ class SQLServer_VectorStore(VectorStore):
         )
         # We assume the DB does not have access to VECTOR data type by default.
         self._has_vector_data_type = False
-        self._prepare_json_data_type()
+        self._check_data_type()
         self._embedding_store = self._get_embedding_store(self.table_name, self.schema)
         self._create_table_if_not_exists()
 
@@ -215,7 +236,7 @@ class SQLServer_VectorStore(VectorStore):
             # Use Entra ID auth. Listen for a connection event
             # when `_create_engine` function from this class is called.
             #
-            event.listen(Engine, "do_connect", self._provide_token)
+            event.listen(Engine, "do_connect", self._provide_token, once=True)
             logging.info("Using Entra ID Authentication.")
 
         return create_engine(url=self.connection_string)
@@ -250,17 +271,15 @@ class SQLServer_VectorStore(VectorStore):
             )  # column for user defined ids.
             content_metadata = Column(JSON, nullable=True)
             content = Column(NVARCHAR, nullable=False)  # defaults to NVARCHAR(MAX)
-
-            if self._has_vector_data_type:
-                # VARBINARY data type will be recompiled as a vector data type
-                # with the specific embedding length. We also do not want to
+            embeddings = (
+                # Use vector data type with embedding length. We also do not want to
                 # set constraint on this column since VECTOR will handle that.
-                embeddings = Column(VARBINARY, nullable=False)
-            else:
+                Column(VectorType(self._embedding_length), nullable=False)
+                if self._has_vector_data_type
                 # Add check constraint to embeddings column
                 # this will ensure only vectors of the same size
                 # are allowed in the vector store.
-                embeddings = Column(
+                else Column(
                     VARBINARY(8000),
                     CheckConstraint(
                         text(EMBEDDING_LENGTH_CONSTRAINT).bindparams(
@@ -269,14 +288,16 @@ class SQLServer_VectorStore(VectorStore):
                     ),
                     nullable=False,
                 )
+            )
 
         return EmbeddingStore
 
-    def _prepare_json_data_type(self) -> None:
-        """Check if the server has the JSON data type available. If it does,
-        we compile JSON data type as JSON instead of NVARCHAR(max) used by
-        sqlalchemy. If it doesn't, this defaults to NVARCHAR(max) as specified
-        by sqlalchemy."""
+    def _check_data_type(self) -> None:
+        """Check if the server has the JSON and VECTOR data type available.
+        For each available data type, we use our corresponding type instead
+        of NVARCHAR(max) and VARBINARY respectively. If the type is not
+        available, this defaults to NVARCHAR(max) and VARBINARY respectively
+        as specified by sqlalchemy."""
         try:
             with Session(self._bind) as session:
                 json_data_type = session.scalar(text(SERVER_JSON_CHECK_QUERY))
@@ -292,15 +313,7 @@ class SQLServer_VectorStore(VectorStore):
                         # return JSON when JSON data type is specified in this class.
                         return json_data_type  # json data type name in sql server
 
-                if vector_data_type is not None:
-                    self._has_vector_data_type = True
-
-                    @compiles(VARBINARY, "mssql")
-                    def compile_varbinary(
-                        element: VARBINARY, compiler: MSTypeCompiler, **kw: Any
-                    ) -> str:
-                        # Returns string of format vector(1024)
-                        return f"{vector_data_type}({self._embedding_length})"
+                self._has_vector_data_type = vector_data_type is not None
 
         except ProgrammingError as e:
             logging.error(f"Unable to get data types.\n {e.__cause__}\n")
@@ -468,8 +481,11 @@ class SQLServer_VectorStore(VectorStore):
                 if self._has_vector_data_type:
                     VECTOR_DISTANCE_QUERY = f"""
 VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
-cast (:{EMBEDDING} as vector({self._embedding_length})),
-embeddings)"""
+cast (:{EMBEDDING} as vector({self._embedding_length})), embeddings)"""
+                else:
+                    VECTOR_DISTANCE_QUERY = f"""
+VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
+JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
                 results = (
                     session.query(
                         self._embedding_store,
