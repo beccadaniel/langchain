@@ -17,7 +17,6 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VST, VectorStore
 from sqlalchemy import (
-    CheckConstraint,
     Column,
     ColumnElement,
     Dialect,
@@ -37,7 +36,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARBINARY, VARCHAR
+from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARCHAR
 from sqlalchemy.dialects.mssql.base import MSTypeCompiler
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import DBAPIError, ProgrammingError
@@ -144,11 +143,12 @@ SQL_COPT_SS_ACCESS_TOKEN = 1256  # Connection option defined by microsoft in mso
 
 # Query Constants
 #
-EMBEDDING_LENGTH_CONSTRAINT = f"ISVECTOR(embeddings, :{EMBEDDING_LENGTH}) = 1"
 SERVER_JSON_CHECK_QUERY = "select name from sys.types where system_type_id = 244"
-VECTOR_TYPE_CHECK_QUERY = (
-    "select name from sys.types where system_type_id = 165 and user_type_id = 255"
-)
+VECTOR_DISTANCE_QUERY = f"""
+VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
+cast (:{EMBEDDING} as vector(:{EMBEDDING_LENGTH})), embeddings)"""
+
+JSON_TO_VECTOR_QUERY = f"cast (:{EMBEDDING_VALUES} as vector(:{EMBEDDING_LENGTH}))"
 
 
 class SQLServer_VectorStore(VectorStore):
@@ -204,8 +204,6 @@ class SQLServer_VectorStore(VectorStore):
         self._bind: Union[Connection, Engine] = (
             connection if connection else self._create_engine()
         )
-        # We assume the DB does not have access to VECTOR data type by default.
-        self._has_vector_data_type = False
         self._check_data_type()
         self._embedding_store = self._get_embedding_store(self.table_name, self.schema)
         self._create_table_if_not_exists()
@@ -271,49 +269,26 @@ class SQLServer_VectorStore(VectorStore):
             )  # column for user defined ids.
             content_metadata = Column(JSON, nullable=True)
             content = Column(NVARCHAR, nullable=False)  # defaults to NVARCHAR(MAX)
-            embeddings = (
-                # Use vector data type with embedding length. We also do not want to
-                # set constraint on this column since VECTOR will handle that.
-                Column(VectorType(self._embedding_length), nullable=False)
-                if self._has_vector_data_type
-                # Add check constraint to embeddings column
-                # this will ensure only vectors of the same size
-                # are allowed in the vector store.
-                else Column(
-                    VARBINARY(8000),
-                    CheckConstraint(
-                        text(EMBEDDING_LENGTH_CONSTRAINT).bindparams(
-                            bindparam(EMBEDDING_LENGTH, self._embedding_length)
-                        )
-                    ),
-                    nullable=False,
-                )
-            )
+            embeddings = Column(VectorType(self._embedding_length), nullable=False)
 
         return EmbeddingStore
 
     def _check_data_type(self) -> None:
-        """Check if the server has the JSON and VECTOR data type available.
-        For each available data type, we use our corresponding type instead
-        of NVARCHAR(max) and VARBINARY respectively. If the type is not
-        available, this defaults to NVARCHAR(max) and VARBINARY respectively
-        as specified by sqlalchemy."""
+        """Check if the server has the JSON data type available and use the type.
+        If it does not, this defaults to NVARCHAR(max) as specified by sqlalchemy."""
         try:
             with Session(self._bind) as session:
-                json_data_type = session.scalar(text(SERVER_JSON_CHECK_QUERY))
-                vector_data_type = session.scalar(text(VECTOR_TYPE_CHECK_QUERY))
+                result = session.scalar(text(SERVER_JSON_CHECK_QUERY))
                 session.close()
 
-                if json_data_type is not None:
+                if result is not None:
 
                     @compiles(JSON, "mssql")
                     def compile_json(
                         element: JSON, compiler: MSTypeCompiler, **kw: Any
                     ) -> str:
                         # return JSON when JSON data type is specified in this class.
-                        return json_data_type  # json data type name in sql server
-
-                self._has_vector_data_type = vector_data_type is not None
+                        return result  # json data type name in sql server
 
         except ProgrammingError as e:
             logging.error(f"Unable to get data types.\n {e.__cause__}\n")
@@ -478,14 +453,6 @@ class SQLServer_VectorStore(VectorStore):
                 if filter_clauses is not None:
                     filter_by.append(filter_clauses)
 
-                if self._has_vector_data_type:
-                    VECTOR_DISTANCE_QUERY = f"""
-VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
-cast (:{EMBEDDING} as vector({self._embedding_length})), embeddings)"""
-                else:
-                    VECTOR_DISTANCE_QUERY = f"""
-VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
-JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
                 results = (
                     session.query(
                         self._embedding_store,
@@ -500,6 +467,11 @@ JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
                                 bindparam(
                                     EMBEDDING,
                                     json.dumps(embedding),
+                                    literal_execute=True,
+                                ),
+                                bindparam(
+                                    EMBEDDING_LENGTH,
+                                    self._embedding_length,
                                     literal_execute=True,
                                 ),
                             ),
@@ -800,9 +772,27 @@ JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
 
                     # Construct text, embedding, metadata as EmbeddingStore model
                     # to be inserted into the table.
-                    embedding_store = self._create_embedding_store_for_insert(
-                        custom_id, embedding, metadata, query
+                    sqlquery = select(
+                        text(JSON_TO_VECTOR_QUERY).bindparams(
+                            bindparam(
+                                EMBEDDING_VALUES,
+                                json.dumps(embedding),
+                                literal_execute=True,
+                                unique=True,
+                            ),
+                            bindparam(
+                                EMBEDDING_LENGTH,
+                                self._embedding_length,
+                                literal_execute=True,
+                            ),
+                        )
                     )
+                    embedding_store = {
+                        "custom_id": custom_id,
+                        "content_metadata": metadata,
+                        "content": query,
+                        "embeddings": sqlquery,
+                    }
                     documents.append(embedding_store)
                 session.execute(insert(self._embedding_store).values(documents))
                 session.commit()
@@ -813,53 +803,6 @@ JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
             logging.error("Metadata must be a list of dictionaries.")
             raise
         return ids
-
-    def _create_embedding_store_for_insert(
-        self, custom_id: str, embedding: List[float], metadata: List[dict], query: str
-    ) -> dict:
-        """Create a dictionary with keys equal to attributes of embeddingstore object.
-        The values associated with the key `embeddings` depends on the availability
-        of the VECTOR data type.
-        """
-        if self._has_vector_data_type:
-            sqlquery = select(
-                text(
-                    f"cast (:{EMBEDDING_VALUES} as vector({self._embedding_length}))"
-                ).bindparams(
-                    bindparam(
-                        EMBEDDING_VALUES,
-                        json.dumps(embedding),
-                        literal_execute=True,
-                        unique=True,
-                    ),
-                )
-            )
-
-        else:
-            sqlquery = select(
-                text(f"JSON_ARRAY_TO_VECTOR (:{EMBEDDING_VALUES})").bindparams(
-                    bindparam(
-                        EMBEDDING_VALUES,
-                        json.dumps(embedding),
-                        # render the value of the parameter into SQL statement
-                        # at statement execution time
-                        literal_execute=True,
-                        # Ensures that the bindparameter key for the select statement
-                        # generated is unique. This allows us generate multiple select
-                        # statements with their individual embedding parameters.
-                        unique=True,
-                    )
-                )
-            )
-
-        # Result from the sqlquery will be inserted into the embeddings
-        # column during insertion run.
-        return {
-            "custom_id": custom_id,
-            "content_metadata": metadata,
-            "content": query,
-            "embeddings": sqlquery,
-        }
 
     def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
         """Delete embeddings in the vectorstore by the ids.
@@ -881,7 +824,7 @@ JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
             logging.info(INVALID_IDS_ERROR_MESSAGE)
             return False
 
-        logging.info(result, " rows affected.")
+        logging.info(f"{result} rows affected.")
         return True
 
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:

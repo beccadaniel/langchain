@@ -1,6 +1,5 @@
 """Test SQLServer_VectorStore functionality."""
 
-import json
 import os
 from typing import Any, Dict, Generator, List
 from unittest import mock
@@ -8,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from langchain_core.documents import Document
-from sqlalchemy import bindparam, create_engine, text
+from sqlalchemy import create_engine, text
 
 from langchain_community.embeddings import FakeEmbeddings
 from langchain_community.vectorstores.sqlserver import (
@@ -597,27 +596,6 @@ def test_that_entra_id_authentication_connection_is_successful(
 
     # drop vector_store
     vector_store.drop()
-
-
-def test_that_embedding_from_native_vector_type_is_same_with_non_native_type() -> None:
-    """Test that value returned by a call to `JSON_ARRAY_TO_VECTOR` is same as
-    that returned by `cast as vector`."""
-    embedding = FakeEmbeddings(size=EMBEDDING_LENGTH).embed_query("good books.")
-
-    non_native_vector_query = text(
-        "select JSON_ARRAY_TO_VECTOR (:embedding)"
-    ).bindparams(bindparam("embedding", json.dumps(embedding), literal_execute=True))
-    native_vector_query = text(
-        f"select cast (:embedding as vector({EMBEDDING_LENGTH}))"
-    ).bindparams(bindparam("embedding", json.dumps(embedding), literal_execute=True))
-
-    engine = create_engine(_CONNECTION_STRING)
-    non_native_vector_result = (
-        engine.connect().execute(non_native_vector_query).scalar()
-    )
-    native_vector_result = engine.connect().execute(native_vector_query).scalar()
-
-    assert non_native_vector_result == native_vector_result
 
 
 # We need to mock this so that actual connection is not attempted
