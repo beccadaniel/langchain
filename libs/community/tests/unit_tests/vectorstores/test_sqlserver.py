@@ -1,6 +1,5 @@
 """Test SQLServer_VectorStore functionality."""
 
-import json
 import os
 from typing import Any, Dict, Generator, List
 from unittest import mock
@@ -8,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from langchain_core.documents import Document
-from sqlalchemy import bindparam, create_engine, text
+from sqlalchemy import create_engine, text
 
 from langchain_community.embeddings import FakeEmbeddings
 from langchain_community.vectorstores.sqlserver import (
@@ -585,39 +584,11 @@ def test_that_entra_id_authentication_connection_is_successful(
     texts: List[str],
 ) -> None:
     """Test that given a valid entra id auth string, connection to DB is successful."""
-    # vector_store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
-    vector_store = SQLServer_VectorStore(
-        connection_string=_ENTRA_ID_CONNECTION_STRING_NO_PARAMS,
-        embedding_length=EMBEDDING_LENGTH,
-        # FakeEmbeddings returns embeddings of the same size as `embedding_length`.
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
-        table_name=_TABLE_NAME,
-    )
+    vector_store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
     vector_store.add_texts(texts)
 
     # drop vector_store
     vector_store.drop()
-
-
-def test_that_embedding_from_native_vector_type_is_same_with_non_native_type() -> None:
-    """Test that value returned by a call to `JSON_ARRAY_TO_VECTOR` is same as
-    that returned by `cast as vector`."""
-    embedding = FakeEmbeddings(size=EMBEDDING_LENGTH).embed_query("good books.")
-
-    non_native_vector_query = text(
-        "select JSON_ARRAY_TO_VECTOR (:embedding)"
-    ).bindparams(bindparam("embedding", json.dumps(embedding), literal_execute=True))
-    native_vector_query = text(
-        f"select cast (:embedding as vector({EMBEDDING_LENGTH}))"
-    ).bindparams(bindparam("embedding", json.dumps(embedding), literal_execute=True))
-
-    engine = create_engine(_CONNECTION_STRING)
-    non_native_vector_result = (
-        engine.connect().execute(non_native_vector_query).scalar()
-    )
-    native_vector_result = engine.connect().execute(native_vector_query).scalar()
-
-    assert non_native_vector_result == native_vector_result
 
 
 # We need to mock this so that actual connection is not attempted
@@ -627,7 +598,7 @@ def test_that_embedding_from_native_vector_type_is_same_with_non_native_type() -
     "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
 )
 @mock.patch(
-    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._check_data_type"
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
 )
 def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_is_used(
     prep_data_type: Mock,
@@ -644,7 +615,6 @@ def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_i
     store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_called()
-
     store.drop()
 
     # reset the mock so that it can be reused.
@@ -664,7 +634,7 @@ def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_i
     "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
 )
 @mock.patch(
-    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._check_data_type"
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
 )
 def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_used(
     prep_data_type: Mock,
@@ -679,10 +649,8 @@ def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_us
     # mssql+pyodbc://username:password@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server"
     store = connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
-
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
-
     store.drop()
 
 
@@ -693,7 +661,7 @@ def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_us
     "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._provide_token"
 )
 @mock.patch(
-    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._check_data_type"
+    "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._prepare_json_data_type"
 )
 def test_that_connection_string_with_trusted_connection_yes_does_not_use_entra_id_auth(
     prep_data_type: Mock,
@@ -708,7 +676,6 @@ def test_that_connection_string_with_trusted_connection_yes_does_not_use_entra_i
     # mssql+pyodbc://@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
     store = connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
-
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
     store.drop()
