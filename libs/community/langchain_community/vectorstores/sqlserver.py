@@ -102,20 +102,20 @@ class DistanceStrategy(str, Enum):
 class VectorType(UserDefinedType):
     cache_ok = True
 
-    def __init__(self, length: int):
+    def __init__(self, length: int) -> None:
         self.length = length
 
-    def get_col_spec(self, **kw: Any):
+    def get_col_spec(self, **kw: Any) -> str:
         return "vector(%s)" % self.length
 
-    def bind_processor(self, dialect: Any):
-        def process(value: Any):
+    def bind_processor(self, dialect: Any) -> Any:
+        def process(value: Any) -> Any:
             return value
 
         return process
 
-    def result_processor(self, dialect: Any, coltype: Any):
-        def process(value: Any):
+    def result_processor(self, dialect: Any, coltype: Any) -> Any:
+        def process(value: Any) -> Any:
             return value
 
         return process
