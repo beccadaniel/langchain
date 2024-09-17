@@ -105,17 +105,17 @@ class VectorType(UserDefinedType):
     def __init__(self, length: int):
         self.length = length
 
-    def get_col_spec(self, **kw):
+    def get_col_spec(self, **kw: Any):
         return "vector(%s)" % self.length
 
-    def bind_processor(self, dialect):
-        def process(value):
+    def bind_processor(self, dialect: Any):
+        def process(value: Any):
             return value
 
         return process
 
-    def result_processor(self, dialect, coltype):
-        def process(value):
+    def result_processor(self, dialect: Any, coltype: Any):
+        def process(value: Any):
             return value
 
         return process
