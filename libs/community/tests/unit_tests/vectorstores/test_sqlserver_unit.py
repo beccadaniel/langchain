@@ -3,6 +3,7 @@ import json
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
+from typing import Union
 from unittest.mock import MagicMock, Mock, patch
 
 import sqlalchemy
@@ -17,7 +18,7 @@ from langchain_community.vectorstores.sqlserver import (
 EMBEDDING_LENGTH = 1536
 
 
-def generalized_mock_factory() -> None:
+def generalized_mock_factory() -> Union[SQLServer_VectorStore, dict]:
     mocks = {
         "_create_engine": MagicMock(),
         "_prepare_json_data_type": MagicMock(),
@@ -127,8 +128,8 @@ def test_can_connect_with_entra_id() -> None:
 
         # case 3: parsed_url has trusted_connection=yes
         url_value = {
-            "username": None,
-            "password": None,
+            "username": "",
+            "password": "",
             "query": "trusted_connection=yes",
         }
 
@@ -148,8 +149,8 @@ def test_can_connect_with_entra_id() -> None:
         # case 4: parsed_url does not have trusted_connection=yes,
         #  no username and password
         url_value = {
-            "username": None,
-            "password": None,
+            "username": "",
+            "password": "",
             "query": "trusted_connection=no",
         }
 
@@ -271,18 +272,14 @@ def test_similarity_search() -> None:
 def test_similarity_search_by_vector() -> None:
     store, mocks = generalized_mock_factory()
 
-    with (
-        patch(
-            "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore.similarity_search_by_vector",
-            wraps=SQLServer_VectorStore.similarity_search_by_vector,
-        ),
-        patch.object(
-            store,
-            "similarity_search_by_vector_with_score",
-            wraps=mocks["similarity_search_by_vector_with_score"],
-        ),
-        patch.object(store, "_docs_from_result", wraps=mocks["_docs_from_result"]),
-    ):
+    with patch(
+        "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore.similarity_search_by_vector",
+        wraps=SQLServer_VectorStore.similarity_search_by_vector,
+    ), patch.object(
+        store,
+        "similarity_search_by_vector_with_score",
+        wraps=mocks["similarity_search_by_vector_with_score"],
+    ), patch.object(store, "_docs_from_result", wraps=mocks["_docs_from_result"]):
         embeddings = [0.1, 0.2, 0.3]
         mock_responses = {
             tuple(["0.01", "0.02", "0.03"]): (
@@ -368,18 +365,14 @@ def test_similarity_search_wih_score() -> None:
 def test_similarity_search_by_vector_with_score() -> None:
     store, mocks = generalized_mock_factory()
 
-    with (
-        patch(
-            "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore."
-            "similarity_search_by_vector_with_score",
-            wraps=SQLServer_VectorStore.similarity_search_by_vector_with_score,
-        ),
-        patch.object(store, "_search_store", wraps=mocks["_search_store"]),
-        patch.object(
-            store,
-            "_docs_and_scores_from_result",
-            wraps=mocks["_docs_and_scores_from_result"],
-        ),
+    with patch(
+        "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore."
+        "similarity_search_by_vector_with_score",
+        wraps=SQLServer_VectorStore.similarity_search_by_vector_with_score,
+    ), patch.object(store, "_search_store", wraps=mocks["_search_store"]), patch.object(
+        store,
+        "_docs_and_scores_from_result",
+        wraps=mocks["_docs_and_scores_from_result"],
     ):
         embeddings = tuple[0.01, 0.02, 0.03]
 
@@ -389,7 +382,7 @@ def test_similarity_search_by_vector_with_score() -> None:
                  0.9595672912317021)"""
         expected_docs = (
             Document(page_content="""Got these on sale for roughly 25 cents per cup"""),
-            0.9588668232580106,
+            "0.9588668232580106",
         )
 
         store._search_store.return_value = expected_search_result
@@ -418,7 +411,7 @@ def test_similarity_search_by_vector_with_score() -> None:
         assert result == expected_docs
 
 
-def test_add_texts():
+def test_add_texts() -> None:
     store, mocks = generalized_mock_factory()
 
     texts = ["hi", "hello", "welcome"]
@@ -457,7 +450,7 @@ def test_add_texts():
         )
 
 
-def test_create_filter_clause():
+def test_create_filter_clause() -> None:
     store, mocks = generalized_mock_factory()
 
     with patch(
@@ -545,7 +538,7 @@ def test_create_filter_clause():
         assert filter_clause_returned is None
 
 
-def test_handle_field_filter():
+def test_handle_field_filter() -> None:
     store, mocks = generalized_mock_factory()
 
     with patch(
@@ -674,7 +667,7 @@ def test_handle_field_filter():
         assert str(handle_field_filter_response) == expected_response
 
 
-def test_docs_from_result():
+def test_docs_from_result() -> None:
     store, mocks = generalized_mock_factory()
 
     with patch(
@@ -754,7 +747,7 @@ def test_docs_from_result():
         assert documents_returned == expected_documents
 
 
-def test_docs_and_scores_from_result():
+def test_docs_and_scores_from_result() -> None:
     store, mocks = generalized_mock_factory()
 
     with patch(
@@ -778,18 +771,13 @@ def test_docs_and_scores_from_result():
         assert resulted_docs_and_score == expected_documents
 
 
-def test_delete():
+def test_delete() -> None:
     store, mocks = generalized_mock_factory()
 
-    with (
-        patch(
-            "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore.delete",
-            wraps=SQLServer_VectorStore.delete,
-        ),
-        patch.object(
-            store, "_delete_texts_by_ids", wraps=mocks["_delete_texts_by_ids"]
-        ),
-    ):
+    with patch(
+        "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore.delete",
+        wraps=SQLServer_VectorStore.delete,
+    ), patch.object(store, "_delete_texts_by_ids", wraps=mocks["_delete_texts_by_ids"]):
         ids = None
         assert store.delete(store, ids) is False
 
