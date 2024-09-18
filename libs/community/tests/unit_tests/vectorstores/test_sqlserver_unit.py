@@ -467,7 +467,7 @@ def test_create_filter_clause():
         patch.object(
             store, "_handle_field_filter", wraps=mocks["_handle_field_filter"]
         ),
-        patch.object(sqlalchemy, "and_", wraps=MagicMock) as mock_sqlalchemy_and
+        patch("sqlalchemy.and_", wraps=MagicMock) as mock_sqlalchemy_and,
     ):
         # filter case 0: Filters is not dict
         filter_value = ["hi"]
@@ -556,20 +556,12 @@ def test_handle_field_filter():
             "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._handle_field_filter",
             wraps=SQLServer_VectorStore._handle_field_filter,
         ),
-        patch.object(sqlalchemy, "and_", wraps=MagicMock) as mock_sqlalchemy_and,
+        patch("sqlalchemy.and_", wraps=MagicMock) as mock_sqlalchemy_and,
         patch.object(sqlalchemy, "or_", wraps=MagicMock),
-        patch.object(
-            sqlalchemy.sql.operators, "ne", wraps=MagicMock
-        ) as mock_sqlalchemy_ne,
-        patch.object(
-            sqlalchemy.sql.operators, "lt", wraps=MagicMock
-        ) as mock_sqlalchemy_lt,
-        patch.object(
-            sqlalchemy.sql.operators, "ge", wraps=MagicMock
-        ) as mock_sqlalchemy_gte,
-        patch.object(
-            sqlalchemy.sql.operators, "le", wraps=MagicMock
-        ) as mock_sqlalchemy_lte,
+        patch("sqlalchemy.sql.operators.ne", wraps=MagicMock) as mock_sqlalchemy_ne,
+        patch("sqlalchemy.sql.operators.lt", wraps=MagicMock) as mock_sqlalchemy_lt,
+        patch("sqlalchemy.sql.operators.ge", wraps=MagicMock) as mock_sqlalchemy_gte,
+        patch("sqlalchemy.sql.operators.le", wraps=MagicMock) as mock_sqlalchemy_lte,
     ):
         # Test case 1: field startWith $
         field = "$AND"
