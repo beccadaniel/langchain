@@ -50,7 +50,7 @@ def generalized_mock_factory() -> None:
                 )
             )
 
-        connection_string = "mssql+pyodbc://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
+        connection_string = "mssql://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
         db_schema = "test_schema"
         distance_strategy = DistanceStrategy.DOT
         embedding_function = FakeEmbeddings(size=128)
@@ -76,7 +76,7 @@ def test_init():
     # Assert
     assert (
         store.connection_string
-        == "mssql+pyodbc://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
+        == "mssql://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
     )
     assert store._distance_strategy == DistanceStrategy.DOT
     assert store.embedding_function == FakeEmbeddings(size=128)
