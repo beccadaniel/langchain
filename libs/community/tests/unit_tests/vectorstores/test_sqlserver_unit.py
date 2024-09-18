@@ -459,16 +459,13 @@ def test_add_texts():
 
 def test_create_filter_clause():
     store, mocks = generalized_mock_factory()
-    with (
-        patch(
-            "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._create_filter_clause",
-            wraps=SQLServer_VectorStore._create_filter_clause,
-        ),
-        patch.object(
-            store, "_handle_field_filter", wraps=mocks["_handle_field_filter"]
-        ),
-        patch("sqlalchemy.and_", wraps=MagicMock) as mock_sqlalchemy_and,
-    ):
+
+    with patch(
+        "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._create_filter_clause",
+        wraps=SQLServer_VectorStore._create_filter_clause,
+    ), patch.object(
+        store, "_handle_field_filter", wraps=mocks["_handle_field_filter"]
+    ), patch("sqlalchemy.and_", wraps=MagicMock()) as mock_sqlalchemy_and:
         # filter case 0: Filters is not dict
         filter_value = ["hi"]
 
@@ -551,18 +548,21 @@ def test_create_filter_clause():
 def test_handle_field_filter():
     store, mocks = generalized_mock_factory()
 
-    with (
-        patch(
-            "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._handle_field_filter",
-            wraps=SQLServer_VectorStore._handle_field_filter,
-        ),
-        patch("sqlalchemy.and_", wraps=MagicMock) as mock_sqlalchemy_and,
-        patch.object(sqlalchemy, "or_", wraps=MagicMock),
-        patch("sqlalchemy.sql.operators.ne", wraps=MagicMock) as mock_sqlalchemy_ne,
-        patch("sqlalchemy.sql.operators.lt", wraps=MagicMock) as mock_sqlalchemy_lt,
-        patch("sqlalchemy.sql.operators.ge", wraps=MagicMock) as mock_sqlalchemy_gte,
-        patch("sqlalchemy.sql.operators.le", wraps=MagicMock) as mock_sqlalchemy_lte,
-    ):
+    with patch(
+        "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._handle_field_filter",
+        wraps=SQLServer_VectorStore._handle_field_filter,
+    ), patch("sqlalchemy.and_", wraps=MagicMock) as mock_sqlalchemy_and, patch.object(
+        sqlalchemy, "or_", wraps=MagicMock
+    ), patch(
+        "sqlalchemy.sql.operators.ne", wraps=MagicMock
+    ) as mock_sqlalchemy_ne, patch(
+        "sqlalchemy.sql.operators.lt", wraps=MagicMock
+    ) as mock_sqlalchemy_lt, patch(
+        "sqlalchemy.sql.operators.ge", wraps=MagicMock
+    ) as mock_sqlalchemy_gte, patch(
+        "sqlalchemy.sql.operators.le",
+        wraps=MagicMock,
+    ) as mock_sqlalchemy_lte:
         # Test case 1: field startWith $
         field = "$AND"
         value = 1
