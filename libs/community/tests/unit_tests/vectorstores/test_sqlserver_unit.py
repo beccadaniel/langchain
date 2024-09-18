@@ -1,6 +1,5 @@
 # Unit test class
 import json
-import os
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
@@ -16,9 +15,6 @@ from langchain_community.vectorstores.sqlserver import (
 )
 
 EMBEDDING_LENGTH = 1536
-_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO = str(
-    os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO")
-)
 
 
 def generalized_mock_factory() -> None:
@@ -54,7 +50,7 @@ def generalized_mock_factory() -> None:
                 )
             )
 
-        connection_string = _ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO
+        connection_string = "mssql+pyodbc://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
         db_schema = "test_schema"
         distance_strategy = DistanceStrategy.DOT
         embedding_function = FakeEmbeddings(size=128)
@@ -78,7 +74,10 @@ def test_init():
     store, mocks = generalized_mock_factory()
 
     # Assert
-    assert store.connection_string == _ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO
+    assert (
+        store.connection_string
+        == "mssql+pyodbc://abcde.database.windows.net,1433/iamvectorstore?driver=ODBC+Driver+17+for+SQL+Server"
+    )
     assert store._distance_strategy == DistanceStrategy.DOT
     assert store.embedding_function == FakeEmbeddings(size=128)
     assert store._embedding_length == 128
