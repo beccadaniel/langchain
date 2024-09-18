@@ -3,7 +3,7 @@ import json
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
-from typing import Union
+from typing import Optional
 from unittest.mock import MagicMock, Mock, patch
 
 import sqlalchemy
@@ -18,7 +18,7 @@ from langchain_community.vectorstores.sqlserver import (
 EMBEDDING_LENGTH = 1536
 
 
-def generalized_mock_factory() -> Union[SQLServer_VectorStore, dict]:
+def generalized_mock_factory() -> tuple[SQLServer_VectorStore, dict[str, MagicMock]]:
     mocks = {
         "_create_engine": MagicMock(),
         "_prepare_json_data_type": MagicMock(),
@@ -70,7 +70,7 @@ def generalized_mock_factory() -> Union[SQLServer_VectorStore, dict]:
     return store, mocks
 
 
-def test_init():
+def test_init() -> None:
     # Arrange
     store, mocks = generalized_mock_factory()
 
@@ -469,30 +469,30 @@ def test_create_filter_clause() -> None:
         )
 
         # filter case 1: Outer operator is not AND/OR
-        filter_value = {"$XOR": 2}
+        filter_value_1 = {"$XOR": 2}
 
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._create_filter_clause(store, filter_value)
+            store._create_filter_clause(store, filter_value_1)
         assert str(context.exception) == (
             """Invalid filter condition.\nExpected $and or $or but got: $XOR"""
         )
 
         # filter case 2: Valid field filter case
-        filter_value = {"id": 1}
+        filter_value_2 = {"id": 1}
         expected_filter_clause = """JSON_VALUE(langchain_vector_store_tests.
         content_metadata, :JSON_VALUE_1) = :JSON_VALUE_2"""
         store._handle_field_filter.return_value = expected_filter_clause
 
-        filter_clause_returned = store._create_filter_clause(store, filter_value)
+        filter_clause_returned = store._create_filter_clause(store, filter_value_2)
         assert filter_clause_returned == expected_filter_clause
         store._handle_field_filter.assert_called_once_with("id", 1)
         store._handle_field_filter.reset_mock()
 
         # filter case 3 - Filter value is not list
-        filter_value = {"$or": {"hi"}}
+        filter_value_2 = {"$or": {"hi"}}
 
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._create_filter_clause(store, filter_value)
+            store._create_filter_clause(store, filter_value_2)
         assert (
             str(context.exception)
             == """Expected a list, but got <class 'set'> for value: {'hi'}"""
@@ -500,9 +500,9 @@ def test_create_filter_clause() -> None:
         store._handle_field_filter.reset_mock()
 
         # filter case 4 - length of fields >1 and have operator, not fields
-        filter_value = {"$eq": {}, "$gte": 1}
+        filter_value_4 = {"$eq": {}, "$gte": 1}
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._create_filter_clause(store, filter_value)
+            store._create_filter_clause(store, filter_value_4)
         assert (
             str(context.exception)
             == """Invalid filter condition. Expected a field but got: $eq"""
@@ -511,7 +511,7 @@ def test_create_filter_clause() -> None:
 
         # filter case 5 - length of fields > 1 and have all fields, we AND it together
 
-        filter_value = {
+        filter_value_5 = {
             "id": {"$eq": [1, 5, 2, 9]},
             "location": {"$eq": ["pond", "market"]},
         }
@@ -522,19 +522,19 @@ def test_create_filter_clause() -> None:
             " :JSON_VALUE_3) = :JSON_VALUE_4"
         )
         mock_sqlalchemy_and.return_value = expected_filter_clause
-        store._create_filter_clause(store, filter_value)
+        store._create_filter_clause(store, filter_value_5)
         assert store._handle_field_filter.call_count == 2
         store._handle_field_filter.reset_mock()
 
         # filter case 6 - empty dictionary
-        filter_value = {}
+        filter_value_6 = {}
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._create_filter_clause(store, filter_value)
+            store._create_filter_clause(store, filter_value_6)
         assert str(context.exception) == """Got an empty dictionary for filters."""
 
         # filter case 7 - filter is None
-        filter_value = None
-        filter_clause_returned = store._create_filter_clause(store, filter_value)
+        filter_value_7 = None
+        filter_clause_returned = store._create_filter_clause(store, filter_value_7)
         assert filter_clause_returned is None
 
 
@@ -578,7 +578,7 @@ def test_handle_field_filter() -> None:
 
         # Test case 3: more than 1 filter for value
         field = "id"
-        value = {"id": "3", "name": "john"}
+        value_1 = {"id": "3", "name": "john"}
         expected_message = (
             "Invalid filter condition."
             " Expected a value which is a dictionary with a single key "
@@ -587,38 +587,38 @@ def test_handle_field_filter() -> None:
             "['id', 'name']"
         )
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._handle_field_filter(store, field, value)
+            store._handle_field_filter(store, field, value_1)
 
         assert str(context.exception) == expected_message
 
         # Test case 4: field is not valid identifier
         field = "id"
-        value = {"$neee": 1}
+        value_2 = {"$neee": 1}
         with unittest.TestCase().assertRaises(ValueError) as context:
-            store._handle_field_filter(store, field, value)
+            store._handle_field_filter(store, field, value_2)
         assert str(context.exception).startswith("Invalid operator: $neee.")
 
         # Test case 5: SPECIAL CASED OPERATORS
         field = "id"
-        value = {"$ne": 1}
+        value_3 = {"$ne": 1}
         expected_response = """JSON_VALUE(langchain_vector_store_tests.content_metadata,
           :JSON_VALUE_1) != :JSON_VALUE_2"""
         mock_sqlalchemy_ne.return_value = expected_response
-        handle_field_filter_response = store._handle_field_filter(store, field, value)
+        handle_field_filter_response = store._handle_field_filter(store, field, value_3)
         assert handle_field_filter_response == expected_response
 
         # Test case 6: NUMERIC OPERATORS
         field = "id"
-        value = {"$lt": 1}
+        value_4 = {"$lt": 1}
         expected_response = """JSON_VALUE(langchain_vector_store_tests.content_metadata,
           :JSON_VALUE_1) < :JSON_VALUE_2"""
         mock_sqlalchemy_lt.return_value = expected_response
-        handle_field_filter_response = store._handle_field_filter(store, field, value)
+        handle_field_filter_response = store._handle_field_filter(store, field, value_4)
         assert handle_field_filter_response == expected_response
 
         # Test case 7: BETWEEN OPERATOR
         field = "id"
-        value = {"$between": (1, 2)}
+        value_5 = {"$between": (1, 2)}
         expected_response = """CAST(JSON_VALUE(
         langchain_vector_store_tests.content_metadata, :JSON_VALUE_1) AS
          NUMERIC(10, 2)) >= :param_1 AND 
@@ -633,7 +633,7 @@ def test_handle_field_filter() -> None:
             " :JSON_VALUE_1) AS NUMERIC(10, 2)) >= :param_1 "
         )
         mock_sqlalchemy_and.return_value = expected_response
-        handle_field_filter_response = store._handle_field_filter(store, field, value)
+        handle_field_filter_response = store._handle_field_filter(store, field, value_5)
         assert handle_field_filter_response == expected_response
         mock_sqlalchemy_and.assert_called_once_with(
             mock_sqlalchemy_gte.return_value, mock_sqlalchemy_lte.return_value
@@ -641,29 +641,29 @@ def test_handle_field_filter() -> None:
 
         # Test case 8: SPECIAL CASED OPERATOR unsupported
         field = "id"
-        value = {"$in": [[], []]}
-        with unittest.TestCase().assertRaises(NotImplementedError) as context:
-            store._handle_field_filter(store, field, value)
+        value_6 = {"$in": [[], []]}
+        with unittest.TestCase().assertRaises(NotImplementedError) as context_n:
+            store._handle_field_filter(store, field, value_6)
         assert (
-            str(context.exception) == "Unsupported type: <class 'list'> for value: []"
+            str(context_n.exception) == "Unsupported type: <class 'list'> for value: []"
         )
 
         # Test case 9: SPECIAL CASED OPERATOR IN
         field = "id"
-        value = {"$in": ["adam", "bob"]}
+        value_7 = {"$in": ["adam", "bob"]}
         expected_response = (
             "JSON_VALUE(:JSON_VALUE_1, :JSON_VALUE_2) IN (__[POSTCOMPILE_JSON_VALUE_3])"
         )
-        handle_field_filter_response = store._handle_field_filter(store, field, value)
+        handle_field_filter_response = store._handle_field_filter(store, field, value_7)
         assert str(handle_field_filter_response) == expected_response
 
         # Test case 10: SPECIAL CASED OPERATOR LIKE
         field = "id"
-        value = {"$like": ["adam", "bob"]}
+        value_8 = {"$like": ["adam", "bob"]}
         expected_response = (
             "JSON_VALUE(:JSON_VALUE_1, :JSON_VALUE_2) LIKE :JSON_VALUE_3"
         )
-        handle_field_filter_response = store._handle_field_filter(store, field, value)
+        handle_field_filter_response = store._handle_field_filter(store, field, value_8)
         assert str(handle_field_filter_response) == expected_response
 
 
@@ -778,7 +778,7 @@ def test_delete() -> None:
         "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore.delete",
         wraps=SQLServer_VectorStore.delete,
     ), patch.object(store, "_delete_texts_by_ids", wraps=mocks["_delete_texts_by_ids"]):
-        ids = None
+        ids: Optional[list[int]] = None
         assert store.delete(store, ids) is False
 
         ids = []
