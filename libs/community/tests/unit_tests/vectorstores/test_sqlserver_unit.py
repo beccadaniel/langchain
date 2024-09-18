@@ -374,7 +374,7 @@ def test_similarity_search_by_vector_with_score() -> None:
         "_docs_and_scores_from_result",
         wraps=mocks["_docs_and_scores_from_result"],
     ):
-        embeddings = tuple[0.01, 0.02, 0.03]
+        embeddings = tuple([0.01, 0.02, 0.03])
 
         expected_search_result = """(<langchain_community.vectorstores.sqlserver.
            SQLServer_VectorStore._get_embedding_store.<locals>.EmbeddingStore object
