@@ -134,6 +134,44 @@ class SQLServer_VectorStore(VectorStore):
 
     """
 
+    @property
+    def embeddings(self) -> Embeddings:
+        return self.embedding_function
+
+    @property
+    def distance_strategy(self) -> str:
+        # Value of distance strategy passed in should be one of the supported values.
+        if isinstance(self._distance_strategy, DistanceStrategy):
+            return self._distance_strategy.value
+
+        # Match string value with appropriate enum value, if supported.
+        distance_strategy_lower = str.lower(self._distance_strategy)
+
+        if distance_strategy_lower == DistanceStrategy.EUCLIDEAN.value:
+            return DistanceStrategy.EUCLIDEAN.value
+        elif distance_strategy_lower == DistanceStrategy.COSINE.value:
+            return DistanceStrategy.COSINE.value
+        elif distance_strategy_lower == DistanceStrategy.DOT.value:
+            return DistanceStrategy.DOT.value
+        else:
+            raise ValueError(f"{self._distance_strategy} is not supported.")
+
+    @distance_strategy.setter
+    def distance_strategy(self, value: DistanceStrategy) -> None:
+        self._distance_strategy = value
+
+
+    @classmethod
+    def from_texts(
+        cls: Type[VST],
+        texts: List[str],
+        embedding: Embeddings,
+        metadatas: Optional[List[dict]] = None,
+        **kwargs: Any,
+    ) -> VST:
+        """Return VectorStore initialized from texts and embeddings."""
+        return super().from_texts(texts, embedding, metadatas, **kwargs)
+    
     def __init__(
         self,
         *,
@@ -209,7 +247,7 @@ class SQLServer_VectorStore(VectorStore):
             # Use Entra ID auth. Listen for a connection event
             # when `_create_engine` function from this class is called.
             #
-            event.listen(Engine, "do_connect", self._provide_token)
+            event.listen(Engine, "do_connect", self._provide_token, once = True)
             logging.info("Using Entra ID Authentication.")
 
         return create_engine(url=self.connection_string)
@@ -280,43 +318,6 @@ class SQLServer_VectorStore(VectorStore):
                         return result  # json data type name in sql server
         except ProgrammingError as e:
             logging.error(f"Unable to get data types.\n {e.__cause__}\n")
-
-    @property
-    def embeddings(self) -> Embeddings:
-        return self.embedding_function
-
-    @property
-    def distance_strategy(self) -> str:
-        # Value of distance strategy passed in should be one of the supported values.
-        if isinstance(self._distance_strategy, DistanceStrategy):
-            return self._distance_strategy.value
-
-        # Match string value with appropriate enum value, if supported.
-        distance_strategy_lower = str.lower(self._distance_strategy)
-
-        if distance_strategy_lower == DistanceStrategy.EUCLIDEAN.value:
-            return DistanceStrategy.EUCLIDEAN.value
-        elif distance_strategy_lower == DistanceStrategy.COSINE.value:
-            return DistanceStrategy.COSINE.value
-        elif distance_strategy_lower == DistanceStrategy.DOT.value:
-            return DistanceStrategy.DOT.value
-        else:
-            raise ValueError(f"{self._distance_strategy} is not supported.")
-
-    @distance_strategy.setter
-    def distance_strategy(self, value: DistanceStrategy) -> None:
-        self._distance_strategy = value
-
-    @classmethod
-    def from_texts(
-        cls: Type[VST],
-        texts: List[str],
-        embedding: Embeddings,
-        metadatas: Optional[List[dict]] = None,
-        **kwargs: Any,
-    ) -> VST:
-        """Return VectorStore initialized from texts and embeddings."""
-        return super().from_texts(texts, embedding, metadatas, **kwargs)
 
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
@@ -668,8 +669,6 @@ class SQLServer_VectorStore(VectorStore):
 
             if operator in {"$in"}:
                 return queried_field.in_([str(val) for val in filter_value])
-            elif operator in {"$nin"}:
-                return queried_field.nin_([str(val) for val in filter_value])
             elif operator in {"$like"}:
                 return queried_field.like(str(filter_value))
             else:
