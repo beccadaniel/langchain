@@ -3,7 +3,7 @@ import json
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
-from typing import Optional
+from typing import Optional, Tuple
 from unittest.mock import MagicMock, Mock, patch
 
 import sqlalchemy
@@ -18,7 +18,7 @@ from langchain_community.vectorstores.sqlserver import (
 EMBEDDING_LENGTH = 1536
 
 
-def generalized_mock_factory() -> tuple[SQLServer_VectorStore, dict[str, MagicMock]]:
+def generalized_mock_factory() -> Tuple[SQLServer_VectorStore, dict[str, MagicMock]]:
     mocks = {
         "_create_engine": MagicMock(),
         "_prepare_json_data_type": MagicMock(),
