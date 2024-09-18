@@ -173,7 +173,8 @@ def test_can_connect_with_entra_id() -> None:
 #     # Unpatch _create_engine to call the actual method
 #     with (
 #         patch(
-#             "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._create_engine",
+#             "langchain_community.vectorstores.sqlserver.
+# SQLServer_VectorStore._create_engine",
 #             wraps=SQLServer_VectorStore._create_engine,
 #         ),
 #         patch.object(
@@ -192,7 +193,8 @@ def test_can_connect_with_entra_id() -> None:
 #     mocks["_can_connect_with_entra_id"].assert_called_once()
 #     if mocks["_can_connect_with_entra_id"].return_value:
 #         specific_calls = [
-#             call for call in mock_listen.call_args_list if call.args[1] == "do_connect"
+#             call for call in mock_listen.call_args_list if call.args[1] ==
+#  "do_connect"
 #         ]
 #         assert len(specific_calls) == 1, f"""Expected 'do_connect' to be called once.
 #           Called {len(specific_calls)} times."""
@@ -206,7 +208,8 @@ def test_can_connect_with_entra_id() -> None:
 #     mocks["_can_connect_with_entra_id"].return_value = False
 #     with (
 #         patch(
-#             "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._create_engine",
+#             "langchain_community.vectorstores.sqlserver.
+# SQLServer_VectorStore._create_engine",
 #             wraps=SQLServer_VectorStore._create_engine,
 #         ),
 #         patch.object(
@@ -464,7 +467,7 @@ def test_create_filter_clause():
         patch.object(
             store, "_handle_field_filter", wraps=mocks["_handle_field_filter"]
         ),
-        patch.object(sqlalchemy, "and_", wraps=MagicMock) as mock_sqlalchemy_and,
+        patch.object(sqlalchemy, "and_", wraps=MagicMock) as mock_sqlalchemy_and
     ):
         # filter case 0: Filters is not dict
         filter_value = ["hi"]
