@@ -252,13 +252,15 @@ def test_similarity_search() -> None:
         store.embedding_function = Mock()
         store.embedding_function.embed_query = Mock()
         store.embedding_function.embed_query.return_value = mock_responses[query]
-        store.similarity_search_by_vector.return_value = mock_responses
+        mocks["similarity_search_by_vector"].return_value = mock_responses
 
         store.similarity_search(store, query)
 
-        store.similarity_search_by_vector.assert_called_once_with([0.01, 0.02, 0.03], 4)
+        mocks["similarity_search_by_vector"].assert_called_once_with(
+            [0.01, 0.02, 0.03], 4
+        )
 
-        store.similarity_search_by_vector.reset_mock()
+        mocks["similarity_search_by_vector"].reset_mock()
 
         query = "hello"
         store.embedding_function.embed_query.reset_mock()
@@ -266,7 +268,7 @@ def test_similarity_search() -> None:
 
         store.similarity_search(store, query, 7)
 
-        store.similarity_search_by_vector.assert_called_once_with([0.1, 0.2, 0.3], 7)
+        mocks["similarity_search_by_vector"].assert_called_once_with([0.1, 0.2, 0.3], 7)
 
 
 def test_similarity_search_by_vector() -> None:
@@ -294,32 +296,32 @@ def test_similarity_search_by_vector() -> None:
             0.9588668232580106,
         )
 
-        store.similarity_search_by_vector_with_score.return_value = mock_responses[
+        mocks["similarity_search_by_vector_with_score"].return_value = mock_responses[
             tuple(["0.01", "0.02", "0.03"])
         ]
-        store._docs_from_result.return_value = expected_result
+        mocks["_docs_from_result"].return_value = expected_result
 
         store.similarity_search_by_vector(store, embeddings)
 
-        store.similarity_search_by_vector_with_score.assert_called_once_with(
+        mocks["similarity_search_by_vector_with_score"].assert_called_once_with(
             embeddings, 4
         )
-        store._docs_from_result.assert_called_once_with(
+        mocks["_docs_from_result"].assert_called_once_with(
             mock_responses[tuple(["0.01", "0.02", "0.03"])]
         )
 
-        store.similarity_search_by_vector_with_score.reset_mock()
-        store._docs_from_result.reset_mock()
+        mocks["similarity_search_by_vector_with_score"].reset_mock()
+        mocks["_docs_from_result"].reset_mock()
 
         store.similarity_search_by_vector(store, embeddings, 7)
 
-        store._docs_from_result.assert_called_once_with(
+        mocks["_docs_from_result"].assert_called_once_with(
             mock_responses[tuple(["0.01", "0.02", "0.03"])]
         )
-        store.similarity_search_by_vector_with_score.assert_called_once_with(
+        mocks["similarity_search_by_vector_with_score"].assert_called_once_with(
             [0.1, 0.2, 0.3], 7
         )
-        store._docs_from_result.assert_called_once_with(
+        mocks["_docs_from_result"].assert_called_once_with(
             mock_responses[tuple(["0.01", "0.02", "0.03"])]
         )
 
@@ -341,15 +343,15 @@ def test_similarity_search_wih_score() -> None:
         store.embedding_function = Mock()
         store.embedding_function.embed_query = Mock()
         store.embedding_function.embed_query.return_value = mock_responses[query]
-        store.similarity_search_by_vector_with_score.return_value = mock_responses
+        mocks["similarity_search_by_vector_with_score"].return_value = mock_responses
 
         store.similarity_search_with_score(store, query)
 
-        store.similarity_search_by_vector_with_score.assert_called_once_with(
+        mocks["similarity_search_by_vector_with_score"].assert_called_once_with(
             [0.01, 0.02, 0.03], 4
         )
 
-        store.similarity_search_by_vector_with_score.reset_mock()
+        mocks["similarity_search_by_vector_with_score"].reset_mock()
 
         query = "hello"
         store.embedding_function.embed_query.reset_mock()
@@ -357,7 +359,7 @@ def test_similarity_search_wih_score() -> None:
 
         store.similarity_search_with_score(store, query, 7)
 
-        store.similarity_search_by_vector_with_score.assert_called_once_with(
+        mocks["similarity_search_by_vector_with_score"].assert_called_once_with(
             [0.1, 0.2, 0.3], 7
         )
 
@@ -385,27 +387,27 @@ def test_similarity_search_by_vector_with_score() -> None:
             "0.9588668232580106",
         )
 
-        store._search_store.return_value = expected_search_result
-        store._docs_and_scores_from_result.return_value = expected_docs
+        mocks["_search_store"].return_value = expected_search_result
+        mocks["_docs_and_scores_from_result"].return_value = expected_docs
 
         # case 1: k is not given
         result = store.similarity_search_by_vector_with_score(store, embeddings)
 
-        store._search_store.assert_called_once_with(embeddings, 4)
-        store._docs_and_scores_from_result.assert_called_once_with(
+        mocks["_search_store"].assert_called_once_with(embeddings, 4)
+        mocks["_docs_and_scores_from_result"].assert_called_once_with(
             expected_search_result
         )
         assert result == expected_docs
 
         store.similarity_search_by_vector_with_score.reset_mock()
-        store._docs_and_scores_from_result.reset_mock()
-        store._search_store.reset_mock()
+        mocks["_docs_and_scores_from_result"].reset_mock()
+        mocks["_search_store"].reset_mock()
 
         # case 2: k =7
         result = store.similarity_search_by_vector_with_score(store, embeddings, 7)
 
-        store._search_store.assert_called_once_with(embeddings, 7)
-        store._docs_and_scores_from_result.assert_called_once_with(
+        mocks["_search_store"].assert_called_once_with(embeddings, 7)
+        mocks["_docs_and_scores_from_result"].assert_called_once_with(
             expected_search_result
         )
         assert result == expected_docs
@@ -431,21 +433,21 @@ def test_add_texts() -> None:
         store.embedding_function = Mock()
         store.embedding_function.embed_documents = Mock()
         store.embedding_function.embed_documents.return_value = embeddings
-        store._insert_embeddings.return_value = ids
+        mocks["_insert_embeddings"].return_value = ids
 
         # case 1:input ids not given
         returned_ids = store.add_texts(store, texts, metadatas)
         assert returned_ids == ids
-        store._insert_embeddings.assert_called_once_with(
+        mocks["_insert_embeddings"].assert_called_once_with(
             texts, embeddings, metadatas, None
         )
 
-        store._insert_embeddings.reset_mock()
+        mocks["_insert_embeddings"].reset_mock()
 
         # case 1:input ids not given
         returned_ids = store.add_texts(store, texts, metadatas, input_ids)
         assert returned_ids == ids
-        store._insert_embeddings.assert_called_once_with(
+        mocks["_insert_embeddings"].assert_called_once_with(
             texts, embeddings, metadatas, input_ids
         )
 
@@ -481,12 +483,12 @@ def test_create_filter_clause() -> None:
         filter_value_2 = {"id": 1}
         expected_filter_clause = """JSON_VALUE(langchain_vector_store_tests.
         content_metadata, :JSON_VALUE_1) = :JSON_VALUE_2"""
-        store._handle_field_filter.return_value = expected_filter_clause
+        mocks["_handle_field_filter"].return_value = expected_filter_clause
 
         filter_clause_returned = store._create_filter_clause(store, filter_value_2)
         assert filter_clause_returned == expected_filter_clause
-        store._handle_field_filter.assert_called_once_with("id", 1)
-        store._handle_field_filter.reset_mock()
+        mocks["_handle_field_filter"].assert_called_once_with("id", 1)
+        mocks["_handle_field_filter"].reset_mock()
 
         # filter case 3 - Filter value is not list
         filter_value_2 = {"$or": {"hi"}}
@@ -497,7 +499,7 @@ def test_create_filter_clause() -> None:
             str(context.exception)
             == """Expected a list, but got <class 'set'> for value: {'hi'}"""
         )
-        store._handle_field_filter.reset_mock()
+        mocks["_handle_field_filter"].reset_mock()
 
         # filter case 4 - length of fields >1 and have operator, not fields
         filter_value_4 = {"$eq": {}, "$gte": 1}
@@ -507,7 +509,7 @@ def test_create_filter_clause() -> None:
             str(context.exception)
             == """Invalid filter condition. Expected a field but got: $eq"""
         )
-        store._handle_field_filter.reset_mock()
+        mocks["_handle_field_filter"].reset_mock()
 
         # filter case 5 - length of fields > 1 and have all fields, we AND it together
 
@@ -523,11 +525,11 @@ def test_create_filter_clause() -> None:
         )
         mock_sqlalchemy_and.return_value = expected_filter_clause
         store._create_filter_clause(store, filter_value_5)
-        assert store._handle_field_filter.call_count == 2
-        store._handle_field_filter.reset_mock()
+        assert mocks["_handle_field_filter"].call_count == 2
+        mocks["_handle_field_filter"].reset_mock()
 
         # filter case 6 - empty dictionary
-        filter_value_6 = {}
+        filter_value_6: Dict = {}
         with unittest.TestCase().assertRaises(ValueError) as context:
             store._create_filter_clause(store, filter_value_6)
         assert str(context.exception) == """Got an empty dictionary for filters."""
@@ -641,7 +643,7 @@ def test_handle_field_filter() -> None:
 
         # Test case 8: SPECIAL CASED OPERATOR unsupported
         field = "id"
-        value_6 = {"$in": [[], []]}
+        value_6: Dict = {"$in": [[], []]}
         with unittest.TestCase().assertRaises(NotImplementedError) as context_n:
             store._handle_field_filter(store, field, value_6)
         assert (
