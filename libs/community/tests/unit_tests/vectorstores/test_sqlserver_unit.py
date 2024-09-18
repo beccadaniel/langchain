@@ -461,12 +461,11 @@ def test_create_filter_clause():
         patch(
             "langchain_community.vectorstores.sqlserver.SQLServer_VectorStore._create_filter_clause",
             wraps=SQLServer_VectorStore._create_filter_clause,
-        ) as mock_create_filter_clause,
+        ),
         patch.object(
             store, "_handle_field_filter", wraps=mocks["_handle_field_filter"]
         ),
         patch.object(sqlalchemy, "and_", wraps=MagicMock) as mock_sqlalchemy_and,
-        patch.object(sqlalchemy, "or_", wraps=MagicMock) as mock_sqlalachemy_or,
     ):
         # filter case 0: Filters is not dict
         filter_value = ["hi"]
