@@ -794,6 +794,10 @@ class SQLServer_VectorStore(VectorStore):
                             ),
                         )
                     )
+                    # `embedding_store` is created in a dictionary format instead
+                    # of using the embedding_store object from this class.
+                    # This enables the use of `insert().values()` which can only
+                    # take a dict and not a custom object.
                     embedding_store = {
                         "custom_id": custom_id,
                         "content_metadata": metadata,
