@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_core.vectorstores import VST, VectorStore
+from langchain_core.vectorstores import VectorStore
 from sqlalchemy import (
     Column,
     ColumnElement,
@@ -169,6 +169,7 @@ class SQLServer_VectorStore(VectorStore):
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         embedding_function: Embeddings,
         embedding_length: int,
+        relevance_score_fn: Optional[Callable[[float], float]] = None,
         table_name: str,
     ) -> None:
         """Initialize the SQL Server vector store.
@@ -192,6 +193,8 @@ class SQLServer_VectorStore(VectorStore):
             embedding_length: The length (dimension) of the vectors to be stored in the
                 table.
                 Note that only vectors of same size can be added to the vector store.
+            relevance_score_fn: Relevance score funtion to be used.
+                Optional param, defaults to None.
             table_name: The name of the table to use for storing embeddings.
 
         """
@@ -201,6 +204,7 @@ class SQLServer_VectorStore(VectorStore):
         self.embedding_function = embedding_function
         self._embedding_length = embedding_length
         self.schema = db_schema
+        self.override_relevance_score_fn = relevance_score_fn
         self.table_name = table_name
         self._bind: Union[Connection, Engine] = (
             connection if connection else self._create_engine()
@@ -379,7 +383,7 @@ class SQLServer_VectorStore(VectorStore):
 
         store.add_texts(texts, metadatas, ids, **kwargs)
         return store
-    
+
     @classmethod
     def from_documents(
         cls: Type[SQLServer_VectorStore],
@@ -422,7 +426,7 @@ class SQLServer_VectorStore(VectorStore):
         Returns:
             SQLServer_VectorStore: A SQL Server vectorstore.
         """
-        
+
         texts = [doc.page_content for doc in documents]
         metadatas = [doc.metadata for doc in documents]
 
@@ -438,6 +442,92 @@ class SQLServer_VectorStore(VectorStore):
 
         store.add_texts(texts, metadatas, ids, **kwargs)
         return store
+
+    def _select_relevance_score_fn(self) -> Callable[[float], float]:
+        """
+        The 'correct' relevance function
+        may differ depending on a few things, including:
+        - the distance / similarity metric used by the VectorStore
+        - the scale of your embeddings (OpenAI's are unit normed. Many others are not!)
+        - embedding dimensionality
+        - etc.
+
+        Vectorstores should define their own selection-based method of relevance.
+        """
+        if self.override_relevance_score_fn is not None:
+            return self.override_relevance_score_fn
+
+        # If the relevance score function is not provided, we default to using
+        # the distance strategy specified by the user.
+        if self._distance_strategy == DistanceStrategy.COSINE:
+            return self._cosine_relevance_score_fn
+        elif self._distance_strategy == DistanceStrategy.DOT:
+            return self._max_inner_product_relevance_score_fn
+        elif self._distance_strategy == DistanceStrategy.EUCLIDEAN:
+            return self._euclidean_relevance_score_fn
+        else:
+            raise ValueError(
+                "There is no supported normalization function for"
+                f" {self._distance_strategy} distance strategy."
+                "Consider providing relevance_score_fn to "
+                "SQLServer_VectorStore construction."
+            )
+
+    def max_marginal_relevance_search(
+        self,
+        query: str,
+        k: int = 4,
+        fetch_k: int = 20,
+        lambda_mult: float = 0.5,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Return docs selected using the maximal marginal relevance.
+
+        Maximal marginal relevance optimizes for similarity to query AND diversity
+        among selected documents.
+
+        Args:
+            query: Text to look up documents similar to.
+            k: Number of Documents to return. Defaults to 4.
+            fetch_k: Number of Documents to fetch to pass to MMR algorithm.
+                Default is 20.
+            lambda_mult: Number between 0 and 1 that determines the degree
+                of diversity among the results with 0 corresponding
+                to maximum diversity and 1 to minimum diversity.
+                Defaults to 0.5.
+            **kwargs: Arguments to pass to the search method.
+
+        Returns:
+            List of Documents selected by maximal marginal relevance.
+        """
+
+    def max_marginal_relevance_search_by_vector(
+        self,
+        embedding: list[float],
+        k: int = 4,
+        fetch_k: int = 20,
+        lambda_mult: float = 0.5,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Return docs selected using the maximal marginal relevance.
+
+        Maximal marginal relevance optimizes for similarity to query AND diversity
+        among selected documents.
+
+        Args:
+            embedding: Embedding to look up documents similar to.
+            k: Number of Documents to return. Defaults to 4.
+            fetch_k: Number of Documents to fetch to pass to MMR algorithm.
+                Default is 20.
+            lambda_mult: Number between 0 and 1 that determines the degree
+                of diversity among the results with 0 corresponding
+                to maximum diversity and 1 to minimum diversity.
+                Defaults to 0.5.
+            **kwargs: Arguments to pass to the search method.
+
+        Returns:
+            List of Documents selected by maximal marginal relevance.
+        """
 
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
@@ -551,6 +641,47 @@ class SQLServer_VectorStore(VectorStore):
 
         except ProgrammingError as e:
             logging.error(f"Unable to drop vector store.\n {e.__cause__}.")
+
+    def get_by_ids(self, ids: List[str], /) -> list[Document]:
+        """Get documents by their IDs from the vectorstore.
+
+        Args:
+            ids: List of IDs to retrieve.
+
+        Returns:
+            List of Documents
+        """
+
+        documents = []
+
+        if ids is None or len(ids) == 0:
+            logging.info(EMPTY_IDS_ERROR_MESSAGE)
+        else:
+            result = self._get_documents_by_ids(ids)
+            for item in result:
+                documents.append(
+                    Document(
+                        id=item.custom_id,
+                        page_content=item.content,
+                        metadata=item.content_metadata,
+                    )
+                )
+
+        return documents
+
+    def _get_documents_by_ids(self, ids: List[str], /) -> list[Document]:
+        result = []
+        try:
+            with Session(bind=self._bind) as session:
+                statement = select(
+                    self._embedding_store.custom_id,
+                    self._embedding_store.content,
+                    self._embedding_store.content_metadata,
+                ).where(self._embedding_store.custom_id.in_(ids))
+                result = session.execute(statement).fetchall()
+        except DBAPIError as e:
+            logging.error(e.__cause__)
+        return result
 
     def _search_store(
         self, embedding: List[float], k: int, filter: Optional[dict] = None
@@ -923,20 +1054,16 @@ class SQLServer_VectorStore(VectorStore):
             raise
         return ids
 
-    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
+    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> bool:
         """Delete embeddings in the vectorstore by the ids.
 
         Args:
-            ids: List of IDs to delete.
+            ids: List of IDs to delete. If None, delete all. Default is None.
             kwargs: vectorstore specific parameters.
 
         Returns:
             Optional[bool]
         """
-
-        if ids is None or len(ids) == 0:
-            logging.info(EMPTY_IDS_ERROR_MESSAGE)
-            return False
 
         result = self._delete_texts_by_ids(ids)
         if result == 0:
@@ -949,11 +1076,15 @@ class SQLServer_VectorStore(VectorStore):
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:
         try:
             with Session(bind=self._bind) as session:
-                result = (
-                    session.query(self._embedding_store)
-                    .filter(self._embedding_store.custom_id.in_(ids))
-                    .delete()
-                )
+                if ids is None or len(ids) == 0:
+                    logging.info("Deleting all data in the vectorstore.")
+                    result = session.query(self._embedding_store).delete()
+                else:
+                    result = (
+                        session.query(self._embedding_store)
+                        .filter(self._embedding_store.custom_id.in_(ids))
+                        .delete()
+                    )
                 session.commit()
         except DBAPIError as e:
             logging.error(e.__cause__)
