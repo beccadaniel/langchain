@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
+from langchain_core.vectorstores.utils import maximal_marginal_relevance
 from sqlalchemy import (
     Column,
     ColumnElement,
@@ -58,6 +59,7 @@ import logging
 import struct
 import uuid
 
+import numpy as np
 import sqlalchemy
 
 COMPARISONS_TO_NATIVE: Dict[str, Callable[[ColumnElement, object], ColumnElement]] = {
@@ -500,6 +502,10 @@ class SQLServer_VectorStore(VectorStore):
         Returns:
             List of Documents selected by maximal marginal relevance.
         """
+        embedded_query = self.embedding_function.embed_query(query)
+        return self.max_marginal_relevance_search_by_vector(
+            embedded_query, k=k, fetch_k=fetch_k, **kwargs
+        )
 
     def max_marginal_relevance_search_by_vector(
         self,
@@ -528,6 +534,24 @@ class SQLServer_VectorStore(VectorStore):
         Returns:
             List of Documents selected by maximal marginal relevance.
         """
+        results = self._search_store(embedding, k=fetch_k, **kwargs)
+        embedding_list = [result.EmbeddingStore.embeddings for result in results]
+        mmr_selects = maximal_marginal_relevance(
+            np.array(embedding, dtype=np.float32),
+            embedding_list,
+            lambda_mult=lambda_mult,
+            k=k,
+        )
+
+        results_as_docs_and_scores = self._docs_and_scores_from_result(results)
+
+        # If an item from results_as_docs_and_scores is present in mmr_selects,
+        # then it is a valid similar doc.
+        return [
+            value
+            for idx, value in enumerate(results_as_docs_and_scores)
+            if idx in mmr_selects
+        ]
 
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
