@@ -590,6 +590,60 @@ def test_that_entra_id_authentication_connection_is_successful(
     vector_store.drop()
 
 
+def test_sqlserver_from_texts(
+    texts: List[str],
+) -> None:
+    """Test that a call to `from_texts` initializes a SQLServer vectorstore from texts."""
+    vectorstore = SQLServer_VectorStore.from_texts(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        texts=texts,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+    
+    vectorstore.drop()
+    assert len(result) == len(texts)
+
+
+def test_sqlserver_from_documents(
+    docs: List[Document],
+) -> None:
+    """Test that a call to `from_documents` initializes a
+    SQLServer vectorstore from documents."""
+    vectorstore = SQLServer_VectorStore.from_documents(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        documents=docs,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+
+    vectorstore.drop()
+    assert len(result) == len(docs)
+
+
+def test_similarity_search_with_relevance_score(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """"""
+    store.add_texts(texts, metadatas)
+
+
 # We need to mock this so that actual connection is not attempted
 # after mocking _provide_token.
 @mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
