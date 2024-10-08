@@ -47,6 +47,9 @@ _ENTRA_ID_CONNECTION_STRING_NO_PARAMS = str(
 _ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO = str(
     os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO")
 )
+_MASTER_DATABASE_CONNECTION_STRING = str(
+    os.environ.get("TEST_AZURESQLSERVER_MASTER_CONNECTION_STRING")
+)
 _SCHEMA = "lc_test"
 _COLLATION_DB_NAME = "LangChainCollationTest"
 _TABLE_NAME = "langchain_vector_store_tests"
@@ -466,7 +469,7 @@ def test_that_case_sensitivity_does_not_affect_distance_strategy(
 ) -> None:
     """Test that when distance strategy is set on a case sensitive DB,
     a call to similarity search does not fail."""
-    connection_string_to_master = "mssql+pyodbc://@localhost/master?driver=ODBC+Driver+17+for+SQL+Server&Trusted_connection=yes"
+    connection_string_to_master = _MASTER_DATABASE_CONNECTION_STRING
 
     conn = create_engine(connection_string_to_master).connect()
     conn.rollback()
@@ -612,17 +615,19 @@ def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_i
     # Connection string is of the form below.
     # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server"
-    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
+    store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_called()
+    store.drop()
 
     # reset the mock so that it can be reused.
     provide_token.reset_mock()
 
     # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=no"
-    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO)
+    store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO)
     provide_token.assert_called()
+    store.drop()
 
 
 # We need to mock this so that actual connection is not attempted
@@ -646,10 +651,10 @@ def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_us
     # Connection string contains username and password,
     # mssql+pyodbc://username:password@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server"
-    connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
-
+    store = connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
+    store.drop()
 
 
 # We need to mock this so that actual connection is not attempted
@@ -673,10 +678,10 @@ def test_that_connection_string_with_trusted_connection_yes_does_not_use_entra_i
     # Connection string is of the form below.
     # mssql+pyodbc://@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
-    connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
-
+    store = connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
+    store.drop()
 
 
 def connect_to_vector_store(conn_string: str) -> SQLServer_VectorStore:

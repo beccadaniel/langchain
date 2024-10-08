@@ -17,7 +17,6 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VST, VectorStore
 from sqlalchemy import (
-    CheckConstraint,
     Column,
     ColumnElement,
     Dialect,
@@ -32,10 +31,12 @@ from sqlalchemy import (
     create_engine,
     event,
     func,
+    insert,
     label,
+    select,
     text,
 )
-from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARBINARY, VARCHAR
+from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARCHAR
 from sqlalchemy.dialects.mssql.base import MSTypeCompiler
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import DBAPIError, ProgrammingError
@@ -43,6 +44,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
 from sqlalchemy.sql import operators
+from sqlalchemy.types import UserDefinedType
 
 try:
     from sqlalchemy.orm import declarative_base
@@ -97,6 +99,28 @@ class DistanceStrategy(str, Enum):
     DOT = "dot"
 
 
+class VectorType(UserDefinedType):
+    cache_ok = True
+
+    def __init__(self, length: int) -> None:
+        self.length = length
+
+    def get_col_spec(self, **kw: Any) -> str:
+        return "vector(%s)" % self.length
+
+    def bind_processor(self, dialect: Any) -> Any:
+        def process(value: Any) -> Any:
+            return value
+
+        return process
+
+    def result_processor(self, dialect: Any, coltype: Any) -> Any:
+        def process(value: Any) -> Any:
+            return value
+
+        return process
+
+
 # String Constants
 #
 AZURE_TOKEN_URL = "https://database.windows.net/.default"  # Token URL for Azure DBs.
@@ -119,11 +143,11 @@ SQL_COPT_SS_ACCESS_TOKEN = 1256  # Connection option defined by microsoft in mso
 
 # Query Constants
 #
-EMBEDDING_LENGTH_CONSTRAINT = f"ISVECTOR(embeddings, :{EMBEDDING_LENGTH}) = 1"
-JSON_TO_ARRAY_QUERY = f"select JSON_ARRAY_TO_VECTOR (:{EMBEDDING_VALUES})"
+JSON_TO_VECTOR_QUERY = f"cast (:{EMBEDDING_VALUES} as vector(:{EMBEDDING_LENGTH}))"
 SERVER_JSON_CHECK_QUERY = "select name from sys.types where system_type_id = 244"
 VECTOR_DISTANCE_QUERY = f"""
-VECTOR_DISTANCE(:{DISTANCE_STRATEGY}, JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
+VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
+cast (:{EMBEDDING} as vector(:{EMBEDDING_LENGTH})), embeddings)"""
 
 
 class SQLServer_VectorStore(VectorStore):
@@ -209,7 +233,7 @@ class SQLServer_VectorStore(VectorStore):
             # Use Entra ID auth. Listen for a connection event
             # when `_create_engine` function from this class is called.
             #
-            event.listen(Engine, "do_connect", self._provide_token)
+            event.listen(Engine, "do_connect", self._provide_token, once=True)
             logging.info("Using Entra ID Authentication.")
 
         return create_engine(url=self.connection_string)
@@ -244,19 +268,7 @@ class SQLServer_VectorStore(VectorStore):
             )  # column for user defined ids.
             content_metadata = Column(JSON, nullable=True)
             content = Column(NVARCHAR, nullable=False)  # defaults to NVARCHAR(MAX)
-
-            # Add check constraint to embeddings column
-            # this will ensure only vectors of the same size
-            # are allowed in the vector store.
-            embeddings = Column(
-                VARBINARY(8000),
-                CheckConstraint(
-                    text(EMBEDDING_LENGTH_CONSTRAINT).bindparams(
-                        bindparam(EMBEDDING_LENGTH, self._embedding_length)
-                    )
-                ),
-                nullable=False,
-            )
+            embeddings = Column(VectorType(self._embedding_length), nullable=False)
 
         return EmbeddingStore
 
@@ -278,6 +290,7 @@ class SQLServer_VectorStore(VectorStore):
                     ) -> str:
                         # return JSON when JSON data type is specified in this class.
                         return result  # json data type name in sql server
+
         except ProgrammingError as e:
             logging.error(f"Unable to get data types.\n {e.__cause__}\n")
 
@@ -455,6 +468,11 @@ class SQLServer_VectorStore(VectorStore):
                                 bindparam(
                                     EMBEDDING,
                                     json.dumps(embedding),
+                                    literal_execute=True,
+                                ),
+                                bindparam(
+                                    EMBEDDING_LENGTH,
+                                    self._embedding_length,
                                     literal_execute=True,
                                 ),
                             ),
@@ -746,33 +764,48 @@ class SQLServer_VectorStore(VectorStore):
                     # For a query, if there is no corresponding ID,
                     # we generate a uuid and add it to the list of IDs to be returned.
                     if idx < len(ids):
-                        id = ids[idx]
+                        custom_id = ids[idx]
                     else:
                         ids.append(str(uuid.uuid4()))
-                        id = ids[-1]
+                        custom_id = ids[-1]
                     embedding = embeddings[idx]
                     metadata = metadatas[idx] if idx < len(metadatas) else {}
 
                     # Construct text, embedding, metadata as EmbeddingStore model
                     # to be inserted into the table.
-                    sqlquery = text(JSON_TO_ARRAY_QUERY).bindparams(
-                        bindparam(
-                            EMBEDDING_VALUES,
-                            json.dumps(embedding),
-                            # render the value of the parameter into SQL statement
-                            # at statement execution time
-                            literal_execute=True,
+                    sqlquery = select(
+                        text(JSON_TO_VECTOR_QUERY).bindparams(
+                            bindparam(
+                                EMBEDDING_VALUES,
+                                json.dumps(embedding),
+                                literal_execute=True,
+                                # when unique is set to true, the name of the key
+                                # for each bindparameter is made unique, to avoid
+                                # using the wrong bound parameter during compile.
+                                # This is especially needed since we're creating
+                                # and storing multiple queries to be bulk inserted
+                                # later on.
+                                unique=True,
+                            ),
+                            bindparam(
+                                EMBEDDING_LENGTH,
+                                self._embedding_length,
+                                literal_execute=True,
+                            ),
                         )
                     )
-                    result = session.scalar(sqlquery)
-                    embedding_store = self._embedding_store(
-                        custom_id=id,
-                        content_metadata=metadata,
-                        content=query,
-                        embeddings=result,
-                    )
+                    # `embedding_store` is created in a dictionary format instead
+                    # of using the embedding_store object from this class.
+                    # This enables the use of `insert().values()` which can only
+                    # take a dict and not a custom object.
+                    embedding_store = {
+                        "custom_id": custom_id,
+                        "content_metadata": metadata,
+                        "content": query,
+                        "embeddings": sqlquery,
+                    }
                     documents.append(embedding_store)
-                session.bulk_save_objects(documents)
+                session.execute(insert(self._embedding_store).values(documents))
                 session.commit()
         except DBAPIError as e:
             logging.error(f"Add text failed:\n {e.__cause__}\n")
@@ -802,7 +835,7 @@ class SQLServer_VectorStore(VectorStore):
             logging.info(INVALID_IDS_ERROR_MESSAGE)
             return False
 
-        logging.info(result, " rows affected.")
+        logging.info(f"{result} rows affected.")
         return True
 
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:
