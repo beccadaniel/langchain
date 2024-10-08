@@ -47,6 +47,9 @@ _ENTRA_ID_CONNECTION_STRING_NO_PARAMS = str(
 _ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO = str(
     os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO")
 )
+_MASTER_DATABASE_CONNECTION_STRING = str(
+    os.environ.get("TEST_AZURESQLSERVER_MASTER_CONNECTION_STRING")
+)
 _SCHEMA = "lc_test"
 _COLLATION_DB_NAME = "LangChainCollationTest"
 _TABLE_NAME = "langchain_vector_store_tests"
@@ -466,7 +469,7 @@ def test_that_case_sensitivity_does_not_affect_distance_strategy(
 ) -> None:
     """Test that when distance strategy is set on a case sensitive DB,
     a call to similarity search does not fail."""
-    connection_string_to_master = "mssql+pyodbc://@localhost/master?driver=ODBC+Driver+17+for+SQL+Server&Trusted_connection=yes"
+    connection_string_to_master = _MASTER_DATABASE_CONNECTION_STRING
 
     conn = create_engine(connection_string_to_master).connect()
     conn.rollback()
