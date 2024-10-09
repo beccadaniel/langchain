@@ -593,7 +593,8 @@ def test_that_entra_id_authentication_connection_is_successful(
 def test_sqlserver_from_texts(
     texts: List[str],
 ) -> None:
-    """Test that a call to `from_texts` initializes a SQLServer vectorstore from texts."""
+    """Test that a call to `from_texts` initializes a
+    SQLServer vectorstore from texts."""
     vectorstore = SQLServer_VectorStore.from_texts(
         connection_string=_CONNECTION_STRING,
         embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
@@ -607,7 +608,7 @@ def test_sqlserver_from_texts(
     connection = create_engine(_CONNECTION_STRING).connect()
     result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
     connection.close()
-    
+
     vectorstore.drop()
     assert len(result) == len(texts)
 
@@ -635,6 +636,37 @@ def test_sqlserver_from_documents(
     assert len(result) == len(docs)
 
 
+def test_get_by_ids(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that `get_by_ids` returns documents."""
+    ids = store.add_texts(texts, metadatas)
+
+    # Append non-existent id to list of IDs to get.
+    ids.append("200")
+    documents = store.get_by_ids(ids)
+
+    # Assert that the length of documents returned
+    # is the same as length of inserted texts.
+    assert len(documents) == len(metadatas)
+
+
+def test_that_max_marginal_relevance_search_returns_expected_no_of_documents(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+) -> None:
+    """Test that the size of documents returned when `max_marginal_relevance_search`
+    is called is the expected number of documents requested."""
+    store.add_texts(texts)
+    number_of_docs_to_return = 3
+    result = store.max_marginal_relevance_search(
+        query="Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
+
+
 def test_similarity_search_with_relevance_score(
     store: SQLServer_VectorStore,
     texts: List[str],
@@ -642,6 +674,7 @@ def test_similarity_search_with_relevance_score(
 ) -> None:
     """"""
     store.add_texts(texts, metadatas)
+    store.similarity_search_with_relevance_scores("Good review")
 
 
 # We need to mock this so that actual connection is not attempted
