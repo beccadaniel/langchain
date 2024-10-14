@@ -672,9 +672,16 @@ def test_similarity_search_with_relevance_score(
     texts: List[str],
     metadatas: List[dict],
 ) -> None:
-    """"""
+    """Test that the size of documents returned when
+    `similarity_search_with_relevance_scores` is called
+    is the expected number of documents requested."""
+    number_of_docs_to_return = 3
+
     store.add_texts(texts, metadatas)
-    store.similarity_search_with_relevance_scores("Good review")
+    result = store.similarity_search_with_relevance_scores(
+        "Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
 
 
 # We need to mock this so that actual connection is not attempted

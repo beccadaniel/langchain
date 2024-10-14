@@ -535,8 +535,8 @@ class SQLServer_VectorStore(VectorStore):
         Returns:
             List of Documents selected by maximal marginal relevance.
         """
-        results = self._search_store(embedding, k=fetch_k, with_list=True, **kwargs)
-        embedding_list = [result.EmbeddingStore.embeddings for result in results]
+        results = self._search_store(embedding, k=fetch_k, for_relevance=True, **kwargs)
+        embedding_list = [json.loads(result[0]) for result in results]
         mmr_selects = maximal_marginal_relevance(
             np.array(embedding, dtype=np.float32),
             embedding_list,
@@ -708,32 +708,12 @@ class SQLServer_VectorStore(VectorStore):
             logging.error(e.__cause__)
         return result
 
-    # def _convert_vector_to_embedding(self, vectors: List[str]) -> List[List[float]]:
-    #     try:
-    #         with Session(self._bind) as session:
-    #             results = []
-    #             for vector in vectors:
-    #                 results.append(
-    #                     session.execute(
-    #                         select(
-    #                             text(f"cast ('{vector}' as nvarchar(max))")
-    #                         )
-    #                     ).fetchone()
-    #                 )
-
-    #     except ProgrammingError as e:
-    #         logging.error(
-    #             f"An error has occurred during the conversion.\n {e.__cause__}"
-    #         )
-    #         raise Exception(e.__cause__) from None
-    #     return results
-
     def _search_store(
         self,
         embedding: List[float],
         k: int,
         filter: Optional[dict] = None,
-        with_list: Optional[bool] = False,
+        for_relevance: Optional[bool] = False,
     ) -> List[Any]:
         try:
             with Session(self._bind) as session:
@@ -763,22 +743,18 @@ class SQLServer_VectorStore(VectorStore):
                     ),
                 )
 
-                if with_list:
-                    # subquery = (
-                    #     select(initial_query)
-                    #     .filter(*filter_by)
-                    #     .order_by(asc(text(DISTANCE)))
-                    #     .limit(k)
-                    #     .subquery()
-                    # )
-                    query = select(
-                            text(f"cast (embeddings as NVARCHAR(MAX))"),
+                if for_relevance:
+                    query = (
+                        select(
+                            text("cast (embeddings as NVARCHAR(MAX))"),
                             initial_query,
                             self._embedding_store,
-                        ).filter(*filter_by).order_by(asc(text(DISTANCE))).limit(k)
-                    results = session.execute(
-                        query).fetchall()
-                    print(results)
+                        )
+                        .filter(*filter_by)
+                        .order_by(asc(text(DISTANCE)))
+                        .limit(k)
+                    )
+                    results = session.execute(query).fetchall()
                 else:
                     results = (
                         session.query(
@@ -790,41 +766,6 @@ class SQLServer_VectorStore(VectorStore):
                         .limit(k)
                         .all()
                     )
-
-                # query = select(
-                #     sqlalchemy.cast(subquery.columns.embeddings, NVARCHAR('MAX')).label('embeddings_cast'),
-                #     subquery
-                # )
-
-                # results = (
-                #     session.query(
-                #         self._embedding_store,
-                #         label(
-                #             DISTANCE,
-                #             text(VECTOR_DISTANCE_QUERY).bindparams(
-                #                 bindparam(
-                #                     DISTANCE_STRATEGY,
-                #                     self.distance_strategy,
-                #                     literal_execute=True,
-                #                 ),
-                #                 bindparam(
-                #                     EMBEDDING,
-                #                     json.dumps(embedding),
-                #                     literal_execute=True,
-                #                 ),
-                #                 bindparam(
-                #                     EMBEDDING_LENGTH,
-                #                     self._embedding_length,
-                #                     literal_execute=True,
-                #                 ),
-                #             ),
-                #         ),
-                #     )
-                #     .filter(*filter_by)
-                #     .order_by(asc(text(DISTANCE)))
-                #     .limit(k)
-                #     .all()
-                # )
         except ProgrammingError as e:
             logging.error(f"An error has occurred during the search.\n {e.__cause__}")
             raise Exception(e.__cause__) from None
