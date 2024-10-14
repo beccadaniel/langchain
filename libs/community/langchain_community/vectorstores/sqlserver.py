@@ -330,7 +330,7 @@ class SQLServer_VectorStore(VectorStore):
     ) -> VST:
         """Return VectorStore initialized from texts and embeddings."""
         return super().from_texts(texts, embedding, metadatas, **kwargs)
-    
+
     def get_by_ids(self, ids: List[str], /) -> List[Document]:
         """Get documents by their IDs from the vectorstore.
         Args:
