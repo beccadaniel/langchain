@@ -820,7 +820,7 @@ class SQLServer_VectorStore(VectorStore):
 
         Args:
             ids: List of IDs to delete. If None, delete all. Default is None.
-                No data is deleted is empty list is provided.
+                No data is deleted if empty list is provided.
             kwargs: vectorstore specific parameters.
 
         Returns:
