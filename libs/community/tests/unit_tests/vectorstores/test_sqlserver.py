@@ -318,7 +318,7 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     store.add_texts(texts, metadatas)
 
     result = store.delete(None)
-    # Should return False, since empty list of ids given
+    # Should return True, since empty list of ids given
     assert result
 
 
