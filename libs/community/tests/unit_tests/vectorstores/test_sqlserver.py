@@ -313,13 +313,30 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     texts: List[str],
     metadatas: List[dict],
 ) -> None:
-    """Test that delete API deletes texts by id."""
+    """Test that delete API deletes data in vectorstore
+    when `None` is provided as the parameter."""
 
     store.add_texts(texts, metadatas)
-
     result = store.delete(None)
-    # Should return True, since empty list of ids given
+
+    # Should return True, since None is provided,
+    # all data in vectorstore is deleted.
     assert result
+
+
+def test_sqlserver_delete_text_by_id_empty_list_provided(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that delete API does not delete data
+    if empty list of ID is provided."""
+
+    store.add_texts(texts, metadatas)
+    result = store.delete([])
+
+    # Should return False, since empty list of ids given
+    assert not result
 
 
 def test_that_multiple_vector_stores_can_be_created(

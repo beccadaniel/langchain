@@ -820,6 +820,7 @@ class SQLServer_VectorStore(VectorStore):
 
         Args:
             ids: List of IDs to delete. If None, delete all. Default is None.
+                No data is deleted is empty list is provided.
             kwargs: vectorstore specific parameters.
 
         Returns:
@@ -837,7 +838,7 @@ class SQLServer_VectorStore(VectorStore):
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:
         try:
             with Session(bind=self._bind) as session:
-                if ids is None or len(ids) == 0:
+                if ids is None:
                     logging.info("Deleting all data in the vectorstore.")
                     result = session.query(self._embedding_store).delete()
                 else:
