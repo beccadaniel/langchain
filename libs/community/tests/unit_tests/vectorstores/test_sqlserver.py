@@ -277,8 +277,7 @@ def test_sqlserver_delete_text_by_id_valid_ids_provided(
 
     result = store.delete(["1", "2", "5"])
     # Should return true since valid ids are given
-    if result:
-        pass
+    assert result
 
 
 def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
@@ -292,8 +291,7 @@ def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
 
     result = store.delete(["1", "2", "6", "9"])
     # Should return true since valid ids are given
-    if result:
-        pass
+    assert result
 
 
 def test_sqlserver_delete_text_by_id_invalid_ids_provided(
@@ -307,8 +305,7 @@ def test_sqlserver_delete_text_by_id_invalid_ids_provided(
 
     result = store.delete(["100000"])
     # Should return False since given id is not in DB
-    if not result:
-        pass
+    assert not result
 
 
 def test_sqlserver_delete_text_by_id_no_ids_provided(
@@ -322,8 +319,7 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
 
     result = store.delete(None)
     # Should return False, since empty list of ids given
-    if not result:
-        pass
+    assert result
 
 
 def test_that_multiple_vector_stores_can_be_created(

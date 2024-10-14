@@ -815,20 +815,16 @@ class SQLServer_VectorStore(VectorStore):
             raise
         return ids
 
-    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
+    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> bool:
         """Delete embeddings in the vectorstore by the ids.
 
         Args:
-            ids: List of IDs to delete.
+            ids: List of IDs to delete. If None, delete all. Default is None.
             kwargs: vectorstore specific parameters.
 
         Returns:
             Optional[bool]
         """
-
-        if ids is None or len(ids) == 0:
-            logging.info(EMPTY_IDS_ERROR_MESSAGE)
-            return False
 
         result = self._delete_texts_by_ids(ids)
         if result == 0:
@@ -841,11 +837,15 @@ class SQLServer_VectorStore(VectorStore):
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:
         try:
             with Session(bind=self._bind) as session:
-                result = (
-                    session.query(self._embedding_store)
-                    .filter(self._embedding_store.custom_id.in_(ids))
-                    .delete()
-                )
+                if ids is None or len(ids) == 0:
+                    logging.info("Deleting all data in the vectorstore.")
+                    result = session.query(self._embedding_store).delete()
+                else:
+                    result = (
+                        session.query(self._embedding_store)
+                        .filter(self._embedding_store.custom_id.in_(ids))
+                        .delete()
+                    )
                 session.commit()
         except DBAPIError as e:
             logging.error(e.__cause__)
