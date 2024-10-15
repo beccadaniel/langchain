@@ -322,7 +322,7 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     # Should return True, since None is provided,
     # all data in vectorstore is deleted.
     assert result
-    
+
     # Check that length of data in vectorstore after
     # delete has been invoked is zero.
     conn = create_engine(_CONNECTION_STRING).connect()
