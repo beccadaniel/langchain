@@ -7,6 +7,7 @@ from typing import (
     List,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     Union,
@@ -331,7 +332,7 @@ class SQLServer_VectorStore(VectorStore):
         """Return VectorStore initialized from texts and embeddings."""
         return super().from_texts(texts, embedding, metadatas, **kwargs)
 
-    def get_by_ids(self, ids: List[str], /) -> List[Document]:
+    def get_by_ids(self, ids: Sequence[str], /) -> List[Document]:
         """Get documents by their IDs from the vectorstore.
         Args:
             ids: List of IDs to retrieve.
@@ -356,7 +357,7 @@ class SQLServer_VectorStore(VectorStore):
 
         return documents
 
-    def _get_documents_by_ids(self, ids: List[str], /) -> List[Document]:
+    def _get_documents_by_ids(self, ids: Sequence[str], /) -> List[Any]:
         result = []
         try:
             with Session(bind=self._bind) as session:
