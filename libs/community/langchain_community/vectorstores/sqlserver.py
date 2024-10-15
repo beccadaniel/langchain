@@ -325,10 +325,10 @@ class SQLServer_VectorStore(VectorStore):
     @classmethod
     def from_texts(
         cls: Type[SQLServer_VectorStore],
-        *,
         texts: List[str],
         embedding: Embeddings,
         metadatas: Optional[List[dict]] = None,
+        *,
         connection_string: str,
         embedding_length: int,
         table_name: str,
@@ -382,9 +382,9 @@ class SQLServer_VectorStore(VectorStore):
     @classmethod
     def from_documents(
         cls: Type[SQLServer_VectorStore],
-        *,
         documents: List[Document],
         embedding: Embeddings,
+        *,
         connection_string: str,
         embedding_length: int,
         table_name: str,
