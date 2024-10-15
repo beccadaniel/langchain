@@ -815,7 +815,7 @@ class SQLServer_VectorStore(VectorStore):
             raise
         return ids
 
-    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> bool:
+    def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
         """Delete embeddings in the vectorstore by the ids.
 
         Args:
@@ -826,6 +826,10 @@ class SQLServer_VectorStore(VectorStore):
         Returns:
             Optional[bool]
         """
+
+        if ids is not None and len(ids) == 0:
+            logging.info(EMPTY_IDS_ERROR_MESSAGE)
+            return False
 
         result = self._delete_texts_by_ids(ids)
         if result == 0:

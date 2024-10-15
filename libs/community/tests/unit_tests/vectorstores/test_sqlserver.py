@@ -313,7 +313,7 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     texts: List[str],
     metadatas: List[dict],
 ) -> None:
-    """Test that delete API deletes data in vectorstore
+    """Test that delete API deletes all data in vectorstore
     when `None` is provided as the parameter."""
 
     store.add_texts(texts, metadatas)
@@ -322,6 +322,14 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     # Should return True, since None is provided,
     # all data in vectorstore is deleted.
     assert result
+    
+    # Check that length of data in vectorstore after
+    # delete has been invoked is zero.
+    conn = create_engine(_CONNECTION_STRING).connect()
+    data = conn.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    conn.close()
+
+    assert len(data) == 0, f"VectorStore {_TABLE_NAME} is not empty."
 
 
 def test_sqlserver_delete_text_by_id_empty_list_provided(
