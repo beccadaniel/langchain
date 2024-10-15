@@ -370,6 +370,52 @@ def test_that_multiple_vector_stores_can_be_created(
     new_store.drop()
 
 
+def test_sqlserver_from_texts(
+    texts: List[str],
+) -> None:
+    """Test that a call to `from_texts` initializes a
+    SQLServer vectorstore from texts."""
+    vectorstore = SQLServer_VectorStore.from_texts(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        texts=texts,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+
+    vectorstore.drop()
+    assert len(result) == len(texts)
+
+
+def test_sqlserver_from_documents(
+    docs: List[Document],
+) -> None:
+    """Test that a call to `from_documents` initializes a
+    SQLServer vectorstore from documents."""
+    vectorstore = SQLServer_VectorStore.from_documents(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        documents=docs,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+
+    vectorstore.drop()
+    assert len(result) == len(docs)
+
+
 def test_that_schema_input_is_used() -> None:
     """Tests that when a schema is given as input to the SQLServer_VectorStore object,
     a vector store is created within the schema."""
