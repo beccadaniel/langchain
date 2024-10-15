@@ -374,7 +374,7 @@ class SQLServer_VectorStore(VectorStore):
         fetch_k: int = 20,
         lambda_mult: float = 0.5,
         **kwargs: Any,
-    ) -> list[Document]:
+    ) -> List[Document]:
         """Return docs selected using the maximal marginal relevance.
         Maximal marginal relevance optimizes for similarity to query AND diversity
         among selected documents.
@@ -403,7 +403,7 @@ class SQLServer_VectorStore(VectorStore):
         fetch_k: int = 20,
         lambda_mult: float = 0.5,
         **kwargs: Any,
-    ) -> list[Document]:
+    ) -> List[Document]:
         """Return docs selected using the maximal marginal relevance.
         Maximal marginal relevance optimizes for similarity to query AND diversity
         among selected documents.
@@ -432,14 +432,14 @@ class SQLServer_VectorStore(VectorStore):
             k=k,
         )
 
-        results_as_docs_and_scores = self._docs_and_scores_from_result(results)
+        results_as_docs = self._docs_from_result(
+            self._docs_and_scores_from_result(results)
+        )
 
         # Return list of Documents from results_as_docs_and_scores whose position
         # corresponds to the indices in mmr_selects.
         return [
-            value
-            for idx, value in enumerate(results_as_docs_and_scores)
-            if idx in mmr_selects
+            value for idx, value in enumerate(results_as_docs) if idx in mmr_selects
         ]
 
     def similarity_search(
@@ -603,7 +603,7 @@ class SQLServer_VectorStore(VectorStore):
                         .order_by(asc(text(DISTANCE)))
                         .limit(k)
                     )
-                    results = session.execute(query).fetchall()
+                    results = list(session.execute(query).fetchall())
                 else:
                     results = (
                         session.query(
