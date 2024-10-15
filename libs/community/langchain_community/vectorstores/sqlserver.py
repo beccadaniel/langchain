@@ -257,7 +257,7 @@ class SQLServer_VectorStore(VectorStore):
     def _get_embedding_store(self, name: str, schema: Optional[str]) -> Any:
         DynamicBase = declarative_base(class_registry=dict())  # type: Any
         if self._embedding_length is None:
-            raise ValueError(f"Expected a value for embedding_length but got `None`.")
+            raise ValueError("Expected a value for embedding_length but got `None`.")
 
         class EmbeddingStore(DynamicBase):
             """This is the base model for SQL vector store."""
@@ -423,8 +423,16 @@ class SQLServer_VectorStore(VectorStore):
             SQLServer_VectorStore: A SQL Server vectorstore.
         """
 
-        texts = [doc.page_content for doc in documents]
-        metadatas = [doc.metadata for doc in documents]
+        texts, metadatas = [], []
+
+        for doc in documents:
+            if not isinstance(doc, Document):
+                raise ValueError(
+                    f"Expected an entry of type Document, but got {type(doc)}"
+                )
+
+            texts.append(doc.page_content)
+            metadatas.append(doc.metadata)
 
         store = cls(
             connection_string=connection_string,
