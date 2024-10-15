@@ -357,8 +357,8 @@ class SQLServer_VectorStore(VectorStore):
 
         return documents
 
-    def _get_documents_by_ids(self, ids: Sequence[str], /) -> List[Any]:
-        result = []
+    def _get_documents_by_ids(self, ids: Sequence[str], /) -> Sequence[Any]:
+        result: Sequence[Any] = []
         try:
             with Session(bind=self._bind) as session:
                 statement = select(
