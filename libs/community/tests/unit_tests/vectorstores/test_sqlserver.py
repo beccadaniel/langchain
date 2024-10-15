@@ -594,6 +594,37 @@ def test_that_entra_id_authentication_connection_is_successful(
     vector_store.drop()
 
 
+def test_that_max_marginal_relevance_search_returns_expected_no_of_documents(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+) -> None:
+    """Test that the size of documents returned when `max_marginal_relevance_search`
+    is called is the expected number of documents requested."""
+    store.add_texts(texts)
+    number_of_docs_to_return = 3
+    result = store.max_marginal_relevance_search(
+        query="Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
+
+
+def test_similarity_search_with_relevance_score(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that the size of documents returned when
+    `similarity_search_with_relevance_scores` is called
+    is the expected number of documents requested."""
+    number_of_docs_to_return = 3
+
+    store.add_texts(texts, metadatas)
+    result = store.similarity_search_with_relevance_scores(
+        "Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
+
+
 # We need to mock this so that actual connection is not attempted
 # after mocking _provide_token.
 @mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")

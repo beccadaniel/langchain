@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VST, VectorStore
+from langchain_core.vectorstores.utils import maximal_marginal_relevance
 from sqlalchemy import (
     Column,
     ColumnElement,
@@ -56,6 +57,7 @@ import logging
 import struct
 import uuid
 
+import numpy as np
 import sqlalchemy
 
 COMPARISONS_TO_NATIVE: Dict[str, Callable[[ColumnElement, object], ColumnElement]] = {
@@ -167,6 +169,7 @@ class SQLServer_VectorStore(VectorStore):
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         embedding_function: Embeddings,
         embedding_length: int,
+        relevance_score_fn: Optional[Callable[[float], float]] = None,
         table_name: str,
     ) -> None:
         """Initialize the SQL Server vector store.
@@ -190,6 +193,8 @@ class SQLServer_VectorStore(VectorStore):
             embedding_length: The length (dimension) of the vectors to be stored in the
                 table.
                 Note that only vectors of same size can be added to the vector store.
+            relevance_score_fn: Relevance score funtion to be used.
+                Optional param, defaults to None.
             table_name: The name of the table to use for storing embeddings.
 
         """
@@ -199,6 +204,7 @@ class SQLServer_VectorStore(VectorStore):
         self.embedding_function = embedding_function
         self._embedding_length = embedding_length
         self.schema = db_schema
+        self.override_relevance_score_fn = relevance_score_fn
         self.table_name = table_name
         self._bind: Union[Connection, Engine] = (
             connection if connection else self._create_engine()
@@ -331,6 +337,111 @@ class SQLServer_VectorStore(VectorStore):
         """Return VectorStore initialized from texts and embeddings."""
         return super().from_texts(texts, embedding, metadatas, **kwargs)
 
+    def _select_relevance_score_fn(self) -> Callable[[float], float]:
+        """
+        The 'correct' relevance function
+        may differ depending on a few things, including:
+        - the distance / similarity metric used by the VectorStore
+        - the scale of your embeddings (OpenAI's are unit normed. Many others are not!)
+        - embedding dimensionality
+        - etc.
+        If no relevance function is provided in the class constructor,
+        selection is based on the distance strategy provided.
+        """
+        if self.override_relevance_score_fn is not None:
+            return self.override_relevance_score_fn
+
+        # If the relevance score function is not provided, we default to using
+        # the distance strategy specified by the user.
+        if self._distance_strategy == DistanceStrategy.COSINE:
+            return self._cosine_relevance_score_fn
+        elif self._distance_strategy == DistanceStrategy.DOT:
+            return self._max_inner_product_relevance_score_fn
+        elif self._distance_strategy == DistanceStrategy.EUCLIDEAN:
+            return self._euclidean_relevance_score_fn
+        else:
+            raise ValueError(
+                "There is no supported normalization function for"
+                f" {self._distance_strategy} distance strategy."
+                "Consider providing relevance_score_fn to "
+                "SQLServer_VectorStore construction."
+            )
+
+    def max_marginal_relevance_search(
+        self,
+        query: str,
+        k: int = 4,
+        fetch_k: int = 20,
+        lambda_mult: float = 0.5,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Return docs selected using the maximal marginal relevance.
+        Maximal marginal relevance optimizes for similarity to query AND diversity
+        among selected documents.
+        Args:
+            query: Text to look up documents similar to.
+            k: Number of Documents to return. Defaults to 4.
+            fetch_k: Number of Documents to fetch to pass to MMR algorithm.
+                Default is 20.
+            lambda_mult: Number between 0 and 1 that determines the degree
+                of diversity among the results with 0 corresponding
+                to maximum diversity and 1 to minimum diversity.
+                Defaults to 0.5.
+            **kwargs: Arguments to pass to the search method.
+        Returns:
+            List of Documents selected by maximal marginal relevance.
+        """
+        embedded_query = self.embedding_function.embed_query(query)
+        return self.max_marginal_relevance_search_by_vector(
+            embedded_query, k=k, fetch_k=fetch_k, lambda_mult=lambda_mult, **kwargs
+        )
+
+    def max_marginal_relevance_search_by_vector(
+        self,
+        embedding: list[float],
+        k: int = 4,
+        fetch_k: int = 20,
+        lambda_mult: float = 0.5,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Return docs selected using the maximal marginal relevance.
+        Maximal marginal relevance optimizes for similarity to query AND diversity
+        among selected documents.
+        Args:
+            embedding: Embedding to look up documents similar to.
+            k: Number of Documents to return. Defaults to 4.
+            fetch_k: Number of Documents to fetch to pass to MMR algorithm.
+                Default is 20.
+            lambda_mult: Number between 0 and 1 that determines the degree
+                of diversity among the results with 0 corresponding
+                to maximum diversity and 1 to minimum diversity.
+                Defaults to 0.5.
+            **kwargs: Arguments to pass to the search method.
+        Returns:
+            List of Documents selected by maximal marginal relevance.
+        """
+        results = self._search_store(
+            embedding, k=fetch_k, marginal_relevance=True, **kwargs
+        )
+        embedding_list = [json.loads(result[0]) for result in results]
+
+        mmr_selects = maximal_marginal_relevance(
+            np.array(embedding, dtype=np.float32),
+            embedding_list,
+            lambda_mult=lambda_mult,
+            k=k,
+        )
+
+        results_as_docs_and_scores = self._docs_and_scores_from_result(results)
+
+        # Return list of Documents from results_as_docs_and_scores whose position
+        # corresponds to the indices in mmr_selects.
+        return [
+            value
+            for idx, value in enumerate(results_as_docs_and_scores)
+            if idx in mmr_selects
+        ]
+
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
     ) -> List[Document]:
@@ -445,7 +556,11 @@ class SQLServer_VectorStore(VectorStore):
             logging.error(f"Unable to drop vector store.\n {e.__cause__}.")
 
     def _search_store(
-        self, embedding: List[float], k: int, filter: Optional[dict] = None
+        self,
+        embedding: List[float],
+        k: int,
+        filter: Optional[dict] = None,
+        marginal_relevance: Optional[bool] = False,
     ) -> List[Any]:
         try:
             with Session(self._bind) as session:
@@ -454,35 +569,52 @@ class SQLServer_VectorStore(VectorStore):
                 if filter_clauses is not None:
                     filter_by.append(filter_clauses)
 
-                results = (
-                    session.query(
-                        self._embedding_store,
-                        label(
-                            DISTANCE,
-                            text(VECTOR_DISTANCE_QUERY).bindparams(
-                                bindparam(
-                                    DISTANCE_STRATEGY,
-                                    self.distance_strategy,
-                                    literal_execute=True,
-                                ),
-                                bindparam(
-                                    EMBEDDING,
-                                    json.dumps(embedding),
-                                    literal_execute=True,
-                                ),
-                                bindparam(
-                                    EMBEDDING_LENGTH,
-                                    self._embedding_length,
-                                    literal_execute=True,
-                                ),
-                            ),
+                subquery = label(
+                    DISTANCE,
+                    text(VECTOR_DISTANCE_QUERY).bindparams(
+                        bindparam(
+                            DISTANCE_STRATEGY,
+                            self.distance_strategy,
+                            literal_execute=True,
                         ),
-                    )
-                    .filter(*filter_by)
-                    .order_by(asc(text(DISTANCE)))
-                    .limit(k)
-                    .all()
+                        bindparam(
+                            EMBEDDING,
+                            json.dumps(embedding),
+                            literal_execute=True,
+                        ),
+                        bindparam(
+                            EMBEDDING_LENGTH,
+                            self._embedding_length,
+                            literal_execute=True,
+                        ),
+                    ),
                 )
+
+                # Results for marginal relevance includes additional
+                # column for embeddings.
+                if marginal_relevance:
+                    query = (
+                        select(
+                            text("cast (embeddings as NVARCHAR(MAX))"),
+                            subquery,
+                            self._embedding_store,
+                        )
+                        .filter(*filter_by)
+                        .order_by(asc(text(DISTANCE)))
+                        .limit(k)
+                    )
+                    results = session.execute(query).fetchall()
+                else:
+                    results = (
+                        session.query(
+                            self._embedding_store,
+                            subquery,
+                        )
+                        .filter(*filter_by)
+                        .order_by(asc(text(DISTANCE)))
+                        .limit(k)
+                        .all()
+                    )
         except ProgrammingError as e:
             logging.error(f"An error has occurred during the search.\n {e.__cause__}")
             raise Exception(e.__cause__) from None
