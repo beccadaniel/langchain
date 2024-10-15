@@ -256,8 +256,8 @@ class SQLServer_VectorStore(VectorStore):
 
     def _get_embedding_store(self, name: str, schema: Optional[str]) -> Any:
         DynamicBase = declarative_base(class_registry=dict())  # type: Any
-        if self._embedding_length is None:
-            raise ValueError("Expected a value for embedding_length but got `None`.")
+        if self._embedding_length is None or self._embedding_length < 1:
+            raise ValueError("`embedding_length` value is not valid.")
 
         class EmbeddingStore(DynamicBase):
             """This is the base model for SQL vector store."""
@@ -333,7 +333,7 @@ class SQLServer_VectorStore(VectorStore):
         embedding: Embeddings,
         metadatas: Optional[List[dict]] = None,
         connection_string: str = str(),
-        embedding_length: Optional[int] = None,
+        embedding_length: int = 0,
         table_name: str = DEFAULT_TABLE_NAME,
         db_schema: Optional[str] = None,
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
@@ -388,7 +388,7 @@ class SQLServer_VectorStore(VectorStore):
         documents: List[Document],
         embedding: Embeddings,
         connection_string: str = str(),
-        embedding_length: Optional[int] = None,
+        embedding_length: int = 0,
         table_name: str = DEFAULT_TABLE_NAME,
         db_schema: Optional[str] = None,
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
