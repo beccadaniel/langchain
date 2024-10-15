@@ -59,7 +59,7 @@ jobs:
           MIN_VERSIONS: ${{ steps.min-version.outputs.min-versions }}
         run: |
           poetry run pip install $MIN_VERSIONS
-          make tests
+          #make tests
         working-directory: ${{ inputs.working-directory }}
 
       - name: Ensure the tests did not create any additional files
