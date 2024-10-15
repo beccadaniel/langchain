@@ -128,6 +128,7 @@ class VectorType(UserDefinedType):
 AZURE_TOKEN_URL = "https://database.windows.net/.default"  # Token URL for Azure DBs.
 DISTANCE = "distance"
 DEFAULT_DISTANCE_STRATEGY = DistanceStrategy.COSINE
+DEFAULT_TABLE_NAME = "sqlserver_vectorstore"
 DISTANCE_STRATEGY = "distancestrategy"
 EMBEDDING = "embedding"
 EMBEDDING_LENGTH = "embedding_length"
@@ -169,7 +170,7 @@ class SQLServer_VectorStore(VectorStore):
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         embedding_function: Embeddings,
         embedding_length: int,
-        table_name: str,
+        table_name: str = DEFAULT_TABLE_NAME,
     ) -> None:
         """Initialize the SQL Server vector store.
 
@@ -193,6 +194,7 @@ class SQLServer_VectorStore(VectorStore):
                 table.
                 Note that only vectors of same size can be added to the vector store.
             table_name: The name of the table to use for storing embeddings.
+                Default value is `sqlserver_vectorstore`.
 
         """
 
@@ -254,6 +256,8 @@ class SQLServer_VectorStore(VectorStore):
 
     def _get_embedding_store(self, name: str, schema: Optional[str]) -> Any:
         DynamicBase = declarative_base(class_registry=dict())  # type: Any
+        if self._embedding_length is None:
+            raise ValueError(f"Expected a value for embedding_length but got `None`.")
 
         class EmbeddingStore(DynamicBase):
             """This is the base model for SQL vector store."""
@@ -328,10 +332,9 @@ class SQLServer_VectorStore(VectorStore):
         texts: List[str],
         embedding: Embeddings,
         metadatas: Optional[List[dict]] = None,
-        *,
-        connection_string: str,
-        embedding_length: int,
-        table_name: str,
+        connection_string: str = str(),
+        embedding_length: Optional[int] = None,
+        table_name: str = DEFAULT_TABLE_NAME,
         db_schema: Optional[str] = None,
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         ids: Optional[List[str]] = None,
@@ -339,16 +342,16 @@ class SQLServer_VectorStore(VectorStore):
     ) -> SQLServer_VectorStore:
         """Create a SQL Server vectorStore initialized from texts and embeddings.
         Args:
-            connection_string: SQLServer connection string.
-                If the connection string does not contain a username & password
-                or `Trusted_Connection=yes`, Entra ID authentication is used.
-                Sample connection string format:
-                "mssql+pyodbc://username:password@servername/dbname?other_params"
             texts: Iterable of strings to add into the vectorstore.
             embedding: Any embedding function implementing
                 `langchain.embeddings.base.Embeddings` interface.
             metadatas: Optional list of metadatas (python dicts) associated
                 with the input texts.
+            connection_string: SQLServer connection string.
+                If the connection string does not contain a username & password
+                or `Trusted_Connection=yes`, Entra ID authentication is used.
+                Sample connection string format:
+                "mssql+pyodbc://username:password@servername/dbname?other_params"
             embedding_length: The length (dimension) of the vectors to be stored in the
                 table.
                 Note that only vectors of same size can be added to the vector store.
@@ -384,10 +387,9 @@ class SQLServer_VectorStore(VectorStore):
         cls: Type[SQLServer_VectorStore],
         documents: List[Document],
         embedding: Embeddings,
-        *,
-        connection_string: str,
-        embedding_length: int,
-        table_name: str,
+        connection_string: str = str(),
+        embedding_length: Optional[int] = None,
+        table_name: str = DEFAULT_TABLE_NAME,
         db_schema: Optional[str] = None,
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         ids: Optional[List[str]] = None,
@@ -407,7 +409,7 @@ class SQLServer_VectorStore(VectorStore):
                 table.
                 Note that only vectors of same size can be added to the vector store.
             table_name: The name of the table to use for storing embeddings.
-            texts: Iterable of strings to add into the vectorstore.
+                Default value is `sqlserver_vectorstore`.
             db_schema: The schema in which the vector store will be created.
                 This schema must exist and the user must have permissions to the schema.
             distance_strategy: The distance strategy to use for comparing embeddings.
