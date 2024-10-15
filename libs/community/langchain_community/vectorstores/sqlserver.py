@@ -347,13 +347,14 @@ class SQLServer_VectorStore(VectorStore):
         else:
             result = self._get_documents_by_ids(ids)
             for item in result:
-                documents.append(
-                    Document(
-                        id=item.custom_id,
-                        page_content=item.content,
-                        metadata=item.content_metadata,
+                if item is not None:
+                    documents.append(
+                        Document(
+                            id=item.custom_id,
+                            page_content=item.content,
+                            metadata=item.content_metadata,
+                        )
                     )
-                )
 
         return documents
 

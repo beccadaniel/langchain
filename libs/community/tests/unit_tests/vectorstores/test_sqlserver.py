@@ -365,6 +365,10 @@ def test_get_by_ids(
     # is the same as length of inserted texts.
     assert len(documents) == len(metadatas)
 
+    # Assert that the length of documents returned is not equal to
+    # length of ids since there is a non-existent ID in the list of IDs.
+    assert len(documents) != len(ids)
+
 
 def test_that_schema_input_is_used() -> None:
     """Tests that when a schema is given as input to the SQLServer_VectorStore object,
