@@ -416,6 +416,27 @@ def test_sqlserver_from_documents(
     assert len(result) == len(docs)
 
 
+def test_get_by_ids(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that `get_by_ids` returns documents."""
+    ids = store.add_texts(texts, metadatas)
+
+    # Append non-existent id to list of IDs to get.
+    ids.append("200")
+    documents = store.get_by_ids(ids)
+
+    # Assert that the length of documents returned
+    # is the same as length of inserted texts.
+    assert len(documents) == len(metadatas)
+
+    # Assert that the length of documents returned is not equal to
+    # length of ids since there is a non-existent ID in the list of IDs.
+    assert len(documents) != len(ids)
+
+
 def test_that_schema_input_is_used() -> None:
     """Tests that when a schema is given as input to the SQLServer_VectorStore object,
     a vector store is created within the schema."""
