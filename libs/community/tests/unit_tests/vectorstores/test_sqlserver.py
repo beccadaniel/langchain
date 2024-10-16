@@ -47,6 +47,9 @@ _ENTRA_ID_CONNECTION_STRING_NO_PARAMS = str(
 _ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO = str(
     os.environ.get("TEST_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO")
 )
+_MASTER_DATABASE_CONNECTION_STRING = str(
+    os.environ.get("TEST_AZURESQLSERVER_MASTER_CONNECTION_STRING")
+)
 _SCHEMA = "lc_test"
 _COLLATION_DB_NAME = "LangChainCollationTest"
 _TABLE_NAME = "langchain_vector_store_tests"
@@ -274,8 +277,7 @@ def test_sqlserver_delete_text_by_id_valid_ids_provided(
 
     result = store.delete(["1", "2", "5"])
     # Should return true since valid ids are given
-    if result:
-        pass
+    assert result
 
 
 def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
@@ -289,8 +291,7 @@ def test_sqlserver_delete_text_by_id_valid_id_and_invalid_ids_provided(
 
     result = store.delete(["1", "2", "6", "9"])
     # Should return true since valid ids are given
-    if result:
-        pass
+    assert result
 
 
 def test_sqlserver_delete_text_by_id_invalid_ids_provided(
@@ -304,8 +305,7 @@ def test_sqlserver_delete_text_by_id_invalid_ids_provided(
 
     result = store.delete(["100000"])
     # Should return False since given id is not in DB
-    if not result:
-        pass
+    assert not result
 
 
 def test_sqlserver_delete_text_by_id_no_ids_provided(
@@ -313,14 +313,38 @@ def test_sqlserver_delete_text_by_id_no_ids_provided(
     texts: List[str],
     metadatas: List[dict],
 ) -> None:
-    """Test that delete API deletes texts by id."""
+    """Test that delete API deletes all data in vectorstore
+    when `None` is provided as the parameter."""
 
     store.add_texts(texts, metadatas)
-
     result = store.delete(None)
+
+    # Should return True, since None is provided,
+    # all data in vectorstore is deleted.
+    assert result
+
+    # Check that length of data in vectorstore after
+    # delete has been invoked is zero.
+    conn = create_engine(_CONNECTION_STRING).connect()
+    data = conn.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    conn.close()
+
+    assert len(data) == 0, f"VectorStore {_TABLE_NAME} is not empty."
+
+
+def test_sqlserver_delete_text_by_id_empty_list_provided(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that delete API does not delete data
+    if empty list of ID is provided."""
+
+    store.add_texts(texts, metadatas)
+    result = store.delete([])
+
     # Should return False, since empty list of ids given
-    if not result:
-        pass
+    assert not result
 
 
 def test_that_multiple_vector_stores_can_be_created(
@@ -344,6 +368,73 @@ def test_that_multiple_vector_stores_can_be_created(
 
     # Drop the new_store table to clean up this test run.
     new_store.drop()
+
+
+def test_sqlserver_from_texts(
+    texts: List[str],
+) -> None:
+    """Test that a call to `from_texts` initializes a
+    SQLServer vectorstore from texts."""
+    vectorstore = SQLServer_VectorStore.from_texts(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        texts=texts,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+
+    vectorstore.drop()
+    assert len(result) == len(texts)
+
+
+def test_sqlserver_from_documents(
+    docs: List[Document],
+) -> None:
+    """Test that a call to `from_documents` initializes a
+    SQLServer vectorstore from documents."""
+    vectorstore = SQLServer_VectorStore.from_documents(
+        connection_string=_CONNECTION_STRING,
+        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_length=EMBEDDING_LENGTH,
+        table_name=_TABLE_NAME,
+        documents=docs,
+    )
+    assert vectorstore is not None
+
+    # Check that vectorstore contains the texts passed in as parameters.
+    connection = create_engine(_CONNECTION_STRING).connect()
+    result = connection.execute(text(f"select * from {_TABLE_NAME}")).fetchall()
+    connection.close()
+
+    vectorstore.drop()
+    assert len(result) == len(docs)
+
+
+def test_get_by_ids(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that `get_by_ids` returns documents."""
+    ids = store.add_texts(texts, metadatas)
+
+    # Append non-existent id to list of IDs to get.
+    ids.append("200")
+    documents = store.get_by_ids(ids)
+
+    # Assert that the length of documents returned
+    # is the same as length of inserted texts.
+    assert len(documents) == len(metadatas)
+
+    # Assert that the length of documents returned is not equal to
+    # length of ids since there is a non-existent ID in the list of IDs.
+    assert len(documents) != len(ids)
 
 
 def test_that_schema_input_is_used() -> None:
@@ -466,7 +557,7 @@ def test_that_case_sensitivity_does_not_affect_distance_strategy(
 ) -> None:
     """Test that when distance strategy is set on a case sensitive DB,
     a call to similarity search does not fail."""
-    connection_string_to_master = "mssql+pyodbc://@localhost/master?driver=ODBC+Driver+17+for+SQL+Server&Trusted_connection=yes"
+    connection_string_to_master = _MASTER_DATABASE_CONNECTION_STRING
 
     conn = create_engine(connection_string_to_master).connect()
     conn.rollback()
@@ -612,17 +703,19 @@ def test_that_given_a_valid_entra_id_connection_string_entra_id_authentication_i
     # Connection string is of the form below.
     # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server"
-    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
+    store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_NO_PARAMS)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_called()
+    store.drop()
 
     # reset the mock so that it can be reused.
     provide_token.reset_mock()
 
     # "mssql+pyodbc://lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=no"
-    connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO)
+    store = connect_to_vector_store(_ENTRA_ID_CONNECTION_STRING_TRUSTED_CONNECTION_NO)
     provide_token.assert_called()
+    store.drop()
 
 
 # We need to mock this so that actual connection is not attempted
@@ -646,10 +739,10 @@ def test_that_given_a_connection_string_with_uid_and_pwd_entra_id_auth_is_not_us
     # Connection string contains username and password,
     # mssql+pyodbc://username:password@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server"
-    connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
-
+    store = connect_to_vector_store(_CONNECTION_STRING_WITH_UID_AND_PWD)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
+    store.drop()
 
 
 # We need to mock this so that actual connection is not attempted
@@ -673,10 +766,10 @@ def test_that_connection_string_with_trusted_connection_yes_does_not_use_entra_i
     # Connection string is of the form below.
     # mssql+pyodbc://@lc-test.database.windows.net,1433/lcvectorstore
     # ?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
-    connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
-
+    store = connect_to_vector_store(_CONNECTION_STRING_WITH_TRUSTED_CONNECTION)
     # _provide_token is called only during Entra ID authentication.
     provide_token.assert_not_called()
+    store.drop()
 
 
 def connect_to_vector_store(conn_string: str) -> SQLServer_VectorStore:

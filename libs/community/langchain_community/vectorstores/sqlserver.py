@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import (
     Any,
@@ -7,6 +9,7 @@ from typing import (
     List,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     Union,
@@ -15,9 +18,8 @@ from urllib.parse import urlparse
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_core.vectorstores import VST, VectorStore
+from langchain_core.vectorstores import VectorStore
 from sqlalchemy import (
-    CheckConstraint,
     Column,
     ColumnElement,
     Dialect,
@@ -32,10 +34,12 @@ from sqlalchemy import (
     create_engine,
     event,
     func,
+    insert,
     label,
+    select,
     text,
 )
-from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARBINARY, VARCHAR
+from sqlalchemy.dialects.mssql import JSON, NVARCHAR, VARCHAR
 from sqlalchemy.dialects.mssql.base import MSTypeCompiler
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import DBAPIError, ProgrammingError
@@ -43,6 +47,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
 from sqlalchemy.sql import operators
+from sqlalchemy.types import UserDefinedType
 
 try:
     from sqlalchemy.orm import declarative_base
@@ -97,11 +102,34 @@ class DistanceStrategy(str, Enum):
     DOT = "dot"
 
 
+class VectorType(UserDefinedType):
+    cache_ok = True
+
+    def __init__(self, length: int) -> None:
+        self.length = length
+
+    def get_col_spec(self, **kw: Any) -> str:
+        return "vector(%s)" % self.length
+
+    def bind_processor(self, dialect: Any) -> Any:
+        def process(value: Any) -> Any:
+            return value
+
+        return process
+
+    def result_processor(self, dialect: Any, coltype: Any) -> Any:
+        def process(value: Any) -> Any:
+            return value
+
+        return process
+
+
 # String Constants
 #
 AZURE_TOKEN_URL = "https://database.windows.net/.default"  # Token URL for Azure DBs.
 DISTANCE = "distance"
 DEFAULT_DISTANCE_STRATEGY = DistanceStrategy.COSINE
+DEFAULT_TABLE_NAME = "sqlserver_vectorstore"
 DISTANCE_STRATEGY = "distancestrategy"
 EMBEDDING = "embedding"
 EMBEDDING_LENGTH = "embedding_length"
@@ -119,11 +147,11 @@ SQL_COPT_SS_ACCESS_TOKEN = 1256  # Connection option defined by microsoft in mso
 
 # Query Constants
 #
-EMBEDDING_LENGTH_CONSTRAINT = f"ISVECTOR(embeddings, :{EMBEDDING_LENGTH}) = 1"
-JSON_TO_ARRAY_QUERY = f"select JSON_ARRAY_TO_VECTOR (:{EMBEDDING_VALUES})"
+JSON_TO_VECTOR_QUERY = f"cast (:{EMBEDDING_VALUES} as vector(:{EMBEDDING_LENGTH}))"
 SERVER_JSON_CHECK_QUERY = "select name from sys.types where system_type_id = 244"
 VECTOR_DISTANCE_QUERY = f"""
-VECTOR_DISTANCE(:{DISTANCE_STRATEGY}, JSON_ARRAY_TO_VECTOR(:{EMBEDDING}), embeddings)"""
+VECTOR_DISTANCE(:{DISTANCE_STRATEGY},
+cast (:{EMBEDDING} as vector(:{EMBEDDING_LENGTH})), embeddings)"""
 
 
 class SQLServer_VectorStore(VectorStore):
@@ -143,7 +171,7 @@ class SQLServer_VectorStore(VectorStore):
         distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
         embedding_function: Embeddings,
         embedding_length: int,
-        table_name: str,
+        table_name: str = DEFAULT_TABLE_NAME,
     ) -> None:
         """Initialize the SQL Server vector store.
 
@@ -167,6 +195,7 @@ class SQLServer_VectorStore(VectorStore):
                 table.
                 Note that only vectors of same size can be added to the vector store.
             table_name: The name of the table to use for storing embeddings.
+                Default value is `sqlserver_vectorstore`.
 
         """
 
@@ -209,7 +238,7 @@ class SQLServer_VectorStore(VectorStore):
             # Use Entra ID auth. Listen for a connection event
             # when `_create_engine` function from this class is called.
             #
-            event.listen(Engine, "do_connect", self._provide_token)
+            event.listen(Engine, "do_connect", self._provide_token, once=True)
             logging.info("Using Entra ID Authentication.")
 
         return create_engine(url=self.connection_string)
@@ -228,6 +257,8 @@ class SQLServer_VectorStore(VectorStore):
 
     def _get_embedding_store(self, name: str, schema: Optional[str]) -> Any:
         DynamicBase = declarative_base(class_registry=dict())  # type: Any
+        if self._embedding_length is None or self._embedding_length < 1:
+            raise ValueError("`embedding_length` value is not valid.")
 
         class EmbeddingStore(DynamicBase):
             """This is the base model for SQL vector store."""
@@ -244,19 +275,7 @@ class SQLServer_VectorStore(VectorStore):
             )  # column for user defined ids.
             content_metadata = Column(JSON, nullable=True)
             content = Column(NVARCHAR, nullable=False)  # defaults to NVARCHAR(MAX)
-
-            # Add check constraint to embeddings column
-            # this will ensure only vectors of the same size
-            # are allowed in the vector store.
-            embeddings = Column(
-                VARBINARY(8000),
-                CheckConstraint(
-                    text(EMBEDDING_LENGTH_CONSTRAINT).bindparams(
-                        bindparam(EMBEDDING_LENGTH, self._embedding_length)
-                    )
-                ),
-                nullable=False,
-            )
+            embeddings = Column(VectorType(self._embedding_length), nullable=False)
 
         return EmbeddingStore
 
@@ -278,6 +297,7 @@ class SQLServer_VectorStore(VectorStore):
                     ) -> str:
                         # return JSON when JSON data type is specified in this class.
                         return result  # json data type name in sql server
+
         except ProgrammingError as e:
             logging.error(f"Unable to get data types.\n {e.__cause__}\n")
 
@@ -309,14 +329,164 @@ class SQLServer_VectorStore(VectorStore):
 
     @classmethod
     def from_texts(
-        cls: Type[VST],
+        cls: Type[SQLServer_VectorStore],
         texts: List[str],
         embedding: Embeddings,
         metadatas: Optional[List[dict]] = None,
+        connection_string: str = str(),
+        embedding_length: int = 0,
+        table_name: str = DEFAULT_TABLE_NAME,
+        db_schema: Optional[str] = None,
+        distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
+        ids: Optional[List[str]] = None,
         **kwargs: Any,
-    ) -> VST:
-        """Return VectorStore initialized from texts and embeddings."""
-        return super().from_texts(texts, embedding, metadatas, **kwargs)
+    ) -> SQLServer_VectorStore:
+        """Create a SQL Server vectorStore initialized from texts and embeddings.
+        Args:
+            texts: Iterable of strings to add into the vectorstore.
+            embedding: Any embedding function implementing
+                `langchain.embeddings.base.Embeddings` interface.
+            metadatas: Optional list of metadatas (python dicts) associated
+                with the input texts.
+            connection_string: SQLServer connection string.
+                If the connection string does not contain a username & password
+                or `Trusted_Connection=yes`, Entra ID authentication is used.
+                Sample connection string format:
+                "mssql+pyodbc://username:password@servername/dbname?other_params"
+            embedding_length: The length (dimension) of the vectors to be stored in the
+                table.
+                Note that only vectors of same size can be added to the vector store.
+            table_name: The name of the table to use for storing embeddings.
+            db_schema: The schema in which the vector store will be created.
+                This schema must exist and the user must have permissions to the schema.
+            distance_strategy: The distance strategy to use for comparing embeddings.
+                Default value is COSINE. Available options are:
+                - COSINE
+                - DOT
+                - EUCLIDEAN
+            ids: Optional list of IDs for the input texts.
+            **kwargs: vectorstore specific parameters.
+        Returns:
+            SQLServer_VectorStore: A SQL Server vectorstore.
+        """
+
+        store = cls(
+            connection_string=connection_string,
+            db_schema=db_schema,
+            distance_strategy=distance_strategy,
+            embedding_function=embedding,
+            embedding_length=embedding_length,
+            table_name=table_name,
+            **kwargs,
+        )
+
+        store.add_texts(texts, metadatas, ids, **kwargs)
+        return store
+
+    @classmethod
+    def from_documents(
+        cls: Type[SQLServer_VectorStore],
+        documents: List[Document],
+        embedding: Embeddings,
+        connection_string: str = str(),
+        embedding_length: int = 0,
+        table_name: str = DEFAULT_TABLE_NAME,
+        db_schema: Optional[str] = None,
+        distance_strategy: DistanceStrategy = DEFAULT_DISTANCE_STRATEGY,
+        ids: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> SQLServer_VectorStore:
+        """Create a SQL Server vectorStore initialized from texts and embeddings.
+        Args:
+            documents: Documents to add to the vectorstore.
+            embedding: Any embedding function implementing
+                `langchain.embeddings.base.Embeddings` interface.
+            connection_string: SQLServer connection string.
+                If the connection string does not contain a username & password
+                or `Trusted_Connection=yes`, Entra ID authentication is used.
+                Sample connection string format:
+                "mssql+pyodbc://username:password@servername/dbname?other_params"
+            embedding_length: The length (dimension) of the vectors to be stored in the
+                table.
+                Note that only vectors of same size can be added to the vector store.
+            table_name: The name of the table to use for storing embeddings.
+                Default value is `sqlserver_vectorstore`.
+            db_schema: The schema in which the vector store will be created.
+                This schema must exist and the user must have permissions to the schema.
+            distance_strategy: The distance strategy to use for comparing embeddings.
+                Default value is COSINE. Available options are:
+                - COSINE
+                - DOT
+                - EUCLIDEAN
+            ids: Optional list of IDs for the input texts.
+            **kwargs: vectorstore specific parameters.
+        Returns:
+            SQLServer_VectorStore: A SQL Server vectorstore.
+        """
+
+        texts, metadatas = [], []
+
+        for doc in documents:
+            if not isinstance(doc, Document):
+                raise ValueError(
+                    f"Expected an entry of type Document, but got {type(doc)}"
+                )
+
+            texts.append(doc.page_content)
+            metadatas.append(doc.metadata)
+
+        store = cls(
+            connection_string=connection_string,
+            db_schema=db_schema,
+            distance_strategy=distance_strategy,
+            embedding_function=embedding,
+            embedding_length=embedding_length,
+            table_name=table_name,
+            **kwargs,
+        )
+
+        store.add_texts(texts, metadatas, ids, **kwargs)
+        return store
+
+    def get_by_ids(self, ids: Sequence[str], /) -> List[Document]:
+        """Get documents by their IDs from the vectorstore.
+        Args:
+            ids: List of IDs to retrieve.
+        Returns:
+            List of Documents
+        """
+
+        documents = []
+
+        if ids is None or len(ids) == 0:
+            logging.info(EMPTY_IDS_ERROR_MESSAGE)
+        else:
+            result = self._get_documents_by_ids(ids)
+            for item in result:
+                if item is not None:
+                    documents.append(
+                        Document(
+                            id=item.custom_id,
+                            page_content=item.content,
+                            metadata=item.content_metadata,
+                        )
+                    )
+
+        return documents
+
+    def _get_documents_by_ids(self, ids: Sequence[str], /) -> Sequence[Any]:
+        result: Sequence[Any] = []
+        try:
+            with Session(bind=self._bind) as session:
+                statement = select(
+                    self._embedding_store.custom_id,
+                    self._embedding_store.content,
+                    self._embedding_store.content_metadata,
+                ).where(self._embedding_store.custom_id.in_(ids))
+                result = session.execute(statement).fetchall()
+        except DBAPIError as e:
+            logging.error(e.__cause__)
+        return result
 
     def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
@@ -455,6 +625,11 @@ class SQLServer_VectorStore(VectorStore):
                                 bindparam(
                                     EMBEDDING,
                                     json.dumps(embedding),
+                                    literal_execute=True,
+                                ),
+                                bindparam(
+                                    EMBEDDING_LENGTH,
+                                    self._embedding_length,
                                     literal_execute=True,
                                 ),
                             ),
@@ -746,33 +921,48 @@ class SQLServer_VectorStore(VectorStore):
                     # For a query, if there is no corresponding ID,
                     # we generate a uuid and add it to the list of IDs to be returned.
                     if idx < len(ids):
-                        id = ids[idx]
+                        custom_id = ids[idx]
                     else:
                         ids.append(str(uuid.uuid4()))
-                        id = ids[-1]
+                        custom_id = ids[-1]
                     embedding = embeddings[idx]
                     metadata = metadatas[idx] if idx < len(metadatas) else {}
 
                     # Construct text, embedding, metadata as EmbeddingStore model
                     # to be inserted into the table.
-                    sqlquery = text(JSON_TO_ARRAY_QUERY).bindparams(
-                        bindparam(
-                            EMBEDDING_VALUES,
-                            json.dumps(embedding),
-                            # render the value of the parameter into SQL statement
-                            # at statement execution time
-                            literal_execute=True,
+                    sqlquery = select(
+                        text(JSON_TO_VECTOR_QUERY).bindparams(
+                            bindparam(
+                                EMBEDDING_VALUES,
+                                json.dumps(embedding),
+                                literal_execute=True,
+                                # when unique is set to true, the name of the key
+                                # for each bindparameter is made unique, to avoid
+                                # using the wrong bound parameter during compile.
+                                # This is especially needed since we're creating
+                                # and storing multiple queries to be bulk inserted
+                                # later on.
+                                unique=True,
+                            ),
+                            bindparam(
+                                EMBEDDING_LENGTH,
+                                self._embedding_length,
+                                literal_execute=True,
+                            ),
                         )
                     )
-                    result = session.scalar(sqlquery)
-                    embedding_store = self._embedding_store(
-                        custom_id=id,
-                        content_metadata=metadata,
-                        content=query,
-                        embeddings=result,
-                    )
+                    # `embedding_store` is created in a dictionary format instead
+                    # of using the embedding_store object from this class.
+                    # This enables the use of `insert().values()` which can only
+                    # take a dict and not a custom object.
+                    embedding_store = {
+                        "custom_id": custom_id,
+                        "content_metadata": metadata,
+                        "content": query,
+                        "embeddings": sqlquery,
+                    }
                     documents.append(embedding_store)
-                session.bulk_save_objects(documents)
+                session.execute(insert(self._embedding_store).values(documents))
                 session.commit()
         except DBAPIError as e:
             logging.error(f"Add text failed:\n {e.__cause__}\n")
@@ -786,14 +976,15 @@ class SQLServer_VectorStore(VectorStore):
         """Delete embeddings in the vectorstore by the ids.
 
         Args:
-            ids: List of IDs to delete.
+            ids: List of IDs to delete. If None, delete all. Default is None.
+                No data is deleted if empty list is provided.
             kwargs: vectorstore specific parameters.
 
         Returns:
             Optional[bool]
         """
 
-        if ids is None or len(ids) == 0:
+        if ids is not None and len(ids) == 0:
             logging.info(EMPTY_IDS_ERROR_MESSAGE)
             return False
 
@@ -802,17 +993,21 @@ class SQLServer_VectorStore(VectorStore):
             logging.info(INVALID_IDS_ERROR_MESSAGE)
             return False
 
-        logging.info(result, " rows affected.")
+        logging.info(f"{result} rows affected.")
         return True
 
     def _delete_texts_by_ids(self, ids: Optional[List[str]] = None) -> int:
         try:
             with Session(bind=self._bind) as session:
-                result = (
-                    session.query(self._embedding_store)
-                    .filter(self._embedding_store.custom_id.in_(ids))
-                    .delete()
-                )
+                if ids is None:
+                    logging.info("Deleting all data in the vectorstore.")
+                    result = session.query(self._embedding_store).delete()
+                else:
+                    result = (
+                        session.query(self._embedding_store)
+                        .filter(self._embedding_store.custom_id.in_(ids))
+                        .delete()
+                    )
                 session.commit()
         except DBAPIError as e:
             logging.error(e.__cause__)

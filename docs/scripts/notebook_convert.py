@@ -13,24 +13,35 @@ from nbconvert.preprocessors import Preprocessor
 class EscapePreprocessor(Preprocessor):
     def preprocess_cell(self, cell, resources, cell_index):
         if cell.cell_type == "markdown":
-            # find all occurrences of ```{=mdx} blocks and remove wrapper
-            if "```{=mdx}\n" in cell.source:
-                cell.source = re.sub(
-                    r"```{=mdx}\n(.*?)\n```", r"\1", cell.source, flags=re.DOTALL
-                )
-            if ":::{.callout" in cell.source:
-                cell.source = re.sub(
-                    r":::{.callout-([^}]*)}(.*?):::",
-                    r":::\1\2:::",
-                    cell.source,
-                    flags=re.DOTALL,
-                )
             # rewrite .ipynb links to .md
             cell.source = re.sub(
                 r"\[([^\]]*)\]\((?![^\)]*//)([^)]*)\.ipynb\)",
                 r"[\1](\2.md)",
                 cell.source,
             )
+
+        elif cell.cell_type == "code":
+            # escape ``` in code
+            cell.source = cell.source.replace("```", r"\`\`\`")
+            # escape ``` in output
+            if "outputs" in cell:
+                filter_out = set()
+                for i, output in enumerate(cell["outputs"]):
+                    if "text" in output:
+                        if not output["text"].strip():
+                            filter_out.add(i)
+                            continue
+                        output["text"] = output["text"].replace("```", r"\`\`\`")
+                    elif "data" in output:
+                        for key, value in output["data"].items():
+                            if isinstance(value, str):
+                                output["data"][key] = value.replace("```", r"\`\`\`")
+                cell["outputs"] = [
+                    output
+                    for i, output in enumerate(cell["outputs"])
+                    if i not in filter_out
+                ]
+
         return cell, resources
 
 
@@ -111,14 +122,38 @@ def _process_path(tup: Tuple[Path, Path, Path]):
     notebook_path, intermediate_docs_dir, output_docs_dir = tup
     relative = notebook_path.relative_to(intermediate_docs_dir)
     output_path = output_docs_dir / relative.parent / (relative.stem + ".md")
-    _convert_notebook(notebook_path, output_path)
+    _convert_notebook(notebook_path, output_path, intermediate_docs_dir)
 
 
-def _convert_notebook(notebook_path: Path, output_path: Path):
+def _modify_frontmatter(
+    body: str, notebook_path: Path, intermediate_docs_dir: Path
+) -> str:
+    # if frontmatter exists
+    rel_path = notebook_path.relative_to(intermediate_docs_dir).as_posix()
+    edit_url = (
+        f"https://github.com/langchain-ai/langchain/edit/master/docs/docs/{rel_path}"
+    )
+    if re.match(r"^[\s\n]*---\n", body):
+        # if custom_edit_url already exists, leave it
+        if re.match(r"custom_edit_url: ", body):
+            return body
+        else:
+            return re.sub(
+                r"^[\s\n]*---\n", f"---\ncustom_edit_url: {edit_url}\n", body, count=1
+            )
+    else:
+        return f"---\ncustom_edit_url: {edit_url}\n---\n{body}"
+
+
+def _convert_notebook(
+    notebook_path: Path, output_path: Path, intermediate_docs_dir: Path
+) -> Path:
     with open(notebook_path) as f:
         nb = nbformat.read(f, as_version=4)
 
     body, resources = exporter.from_notebook_node(nb)
+
+    body = _modify_frontmatter(body, notebook_path, intermediate_docs_dir)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
