@@ -552,7 +552,7 @@ class SQLServer_VectorStore(VectorStore):
             self._docs_and_scores_from_result(results)
         )
 
-        # Return list of Documents from results_as_docs_and_scores whose position
+        # Return list of Documents from results_as_docs whose position
         # corresponds to the indices in mmr_selects.
         return [
             value for idx, value in enumerate(results_as_docs) if idx in mmr_selects
