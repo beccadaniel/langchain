@@ -748,6 +748,21 @@ def test_select_relevance_score_fn_returns_correct_relevance_function(
     assert result == store._cosine_relevance_score_fn
 
 
+def test_select_relevance_score_fn_raises_exception_with_invalid_value(
+    store: SQLServer_VectorStore,
+    docs: List[Document],
+) -> None:
+    """Test that `_select_relevance_score_fn` raises a value error
+    if an invalid distance_strategy is provided."""
+    store.add_documents(docs)
+    store.distance_strategy = "InvalidDistanceStrategy"
+
+    # Invocation of `_select_relevance_score_fn` should raise a ValueError
+    # since the `distance_strategy` value is invalid.
+    with pytest.raises(ValueError):
+        store._select_relevance_score_fn()
+
+
 # We need to mock this so that actual connection is not attempted
 # after mocking _provide_token.
 @mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
