@@ -9,6 +9,7 @@ from typing import (
     List,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     Union,
@@ -452,6 +453,46 @@ class SQLServer_VectorStore(VectorStore):
 
         store.add_texts(texts, metadatas, ids, **kwargs)
         return store
+
+    def get_by_ids(self, ids: Sequence[str], /) -> List[Document]:
+        """Get documents by their IDs from the vectorstore.
+        Args:
+            ids: List of IDs to retrieve.
+        Returns:
+            List of Documents
+        """
+
+        documents = []
+
+        if ids is None or len(ids) == 0:
+            logging.info(EMPTY_IDS_ERROR_MESSAGE)
+        else:
+            result = self._get_documents_by_ids(ids)
+            for item in result:
+                if item is not None:
+                    documents.append(
+                        Document(
+                            id=item.custom_id,
+                            page_content=item.content,
+                            metadata=item.content_metadata,
+                        )
+                    )
+
+        return documents
+
+    def _get_documents_by_ids(self, ids: Sequence[str], /) -> Sequence[Any]:
+        result: Sequence[Any] = []
+        try:
+            with Session(bind=self._bind) as session:
+                statement = select(
+                    self._embedding_store.custom_id,
+                    self._embedding_store.content,
+                    self._embedding_store.content_metadata,
+                ).where(self._embedding_store.custom_id.in_(ids))
+                result = session.execute(statement).fetchall()
+        except DBAPIError as e:
+            logging.error(e.__cause__)
+        return result
 
     def _select_relevance_score_fn(self) -> Callable[[float], float]:
         """
