@@ -4,7 +4,6 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
-    Dict,
     Iterable,
     List,
     MutableMapping,
@@ -22,7 +21,6 @@ from langchain_core.vectorstores import VectorStore
 from langchain_core.vectorstores.utils import maximal_marginal_relevance
 from sqlalchemy import (
     Column,
-    ColumnElement,
     Dialect,
     Index,
     Numeric,
@@ -63,12 +61,12 @@ import uuid
 import numpy as np
 import sqlalchemy
 
-COMPARISONS_TO_NATIVE: Dict[str, Callable[[ColumnElement, object], ColumnElement]] = {
+COMPARISONS_TO_NATIVE = {
     "$eq": operators.eq,
     "$ne": operators.ne,
 }
 
-NUMERIC_OPERATORS: Dict[str, Callable[[ColumnElement, object], ColumnElement]] = {
+NUMERIC_OPERATORS = {
     "$lt": operators.lt,
     "$lte": operators.le,
     "$gt": operators.gt,
