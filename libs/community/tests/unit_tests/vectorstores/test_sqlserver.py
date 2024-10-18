@@ -9,7 +9,7 @@ import pytest
 from langchain_core.documents import Document
 from sqlalchemy import create_engine, text
 
-from langchain_community.embeddings import FakeEmbeddings
+from langchain_community.embeddings import DeterministicFakeEmbedding
 from langchain_community.vectorstores.sqlserver import (
     DistanceStrategy,
     SQLServer_VectorStore,
@@ -89,8 +89,9 @@ def store() -> Generator[SQLServer_VectorStore, None, None]:
     store = SQLServer_VectorStore(
         connection_string=_CONNECTION_STRING,
         embedding_length=EMBEDDING_LENGTH,
-        # FakeEmbeddings returns embeddings of the same size as `embedding_length`.
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        # DeterministicFakeEmbedding returns embeddings of the same
+        # size as `embedding_length`.
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         table_name=_TABLE_NAME,
     )
     yield store  # provide this data to the test
@@ -257,7 +258,9 @@ def test_that_add_text_fails_if_text_embedding_length_is_not_equal_to_embedding_
 
     # Assign a new embedding function with a different length to the store.
     #
-    store.embedding_function = FakeEmbeddings(size=384)  # a different size is used.
+    store.embedding_function = DeterministicFakeEmbedding(
+        size=384
+    )  # a different size is used.
 
     with pytest.raises(Exception):
         # add_texts should fail and raise an exception since embedding length of
@@ -357,7 +360,7 @@ def test_that_multiple_vector_stores_can_be_created(
     # Create another vector store with a different table name.
     new_store = SQLServer_VectorStore(
         connection_string=_CONNECTION_STRING,
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name="langchain_vector_store_tests_2",
     )
@@ -377,7 +380,7 @@ def test_sqlserver_from_texts(
     SQLServer vectorstore from texts."""
     vectorstore = SQLServer_VectorStore.from_texts(
         connection_string=_CONNECTION_STRING,
-        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name=_TABLE_NAME,
         texts=texts,
@@ -400,7 +403,7 @@ def test_sqlserver_from_documents(
     SQLServer vectorstore from documents."""
     vectorstore = SQLServer_VectorStore.from_documents(
         connection_string=_CONNECTION_STRING,
-        embedding=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name=_TABLE_NAME,
         documents=docs,
@@ -449,7 +452,7 @@ def test_that_schema_input_is_used() -> None:
         connection=connection,
         connection_string=_CONNECTION_STRING,
         db_schema=_SCHEMA,
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name=_TABLE_NAME,
     )
@@ -473,7 +476,7 @@ def test_that_same_name_vector_store_can_be_created_in_different_schemas() -> No
         connection=connection,
         connection_string=_CONNECTION_STRING,
         db_schema=_SCHEMA,
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name=_TABLE_NAME,
     )
@@ -482,7 +485,7 @@ def test_that_same_name_vector_store_can_be_created_in_different_schemas() -> No
     sqlserver_vectorstore_default_schema = SQLServer_VectorStore(
         connection=connection,
         connection_string=_CONNECTION_STRING,
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         embedding_length=EMBEDDING_LENGTH,
         table_name=_TABLE_NAME,
     )
@@ -519,7 +522,7 @@ def test_that_only_same_size_embeddings_can_be_added_to_store(
     # Add texts using an embedding function with a different length.
     # This should raise an exception.
     #
-    store.embedding_function = FakeEmbeddings(size=420)
+    store.embedding_function = DeterministicFakeEmbedding(size=420)
     with pytest.raises(Exception):
         store.add_texts(texts)
 
@@ -571,9 +574,10 @@ def test_that_case_sensitivity_does_not_affect_distance_strategy(
     store = SQLServer_VectorStore(
         connection=conn,
         connection_string=connection_string_to_master,
-        # FakeEmbeddings returns embeddings of the same size as `embedding_length`.
+        # DeterministicFakeEmbedding returns embeddings of the same
+        # size as `embedding_length`.
         embedding_length=EMBEDDING_LENGTH,
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         table_name=_TABLE_NAME,
     )
     collation_query_result = (
@@ -682,6 +686,83 @@ def test_that_entra_id_authentication_connection_is_successful(
     vector_store.drop()
 
 
+def test_that_max_marginal_relevance_search_returns_expected_no_of_documents(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+) -> None:
+    """Test that the size of documents returned when `max_marginal_relevance_search`
+    is called is the expected number of documents requested."""
+    store.add_texts(texts)
+    number_of_docs_to_return = 3
+    result = store.max_marginal_relevance_search(
+        query="Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
+
+
+def test_similarity_search_with_relevance_score(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that the size of documents returned when
+    `similarity_search_with_relevance_scores` is called
+    is the expected number of documents requested."""
+    number_of_docs_to_return = 3
+
+    store.add_texts(texts, metadatas)
+    result = store.similarity_search_with_relevance_scores(
+        "Good review", k=number_of_docs_to_return
+    )
+    assert len(result) == number_of_docs_to_return
+
+
+def test_similarity_search_with_relevance_score_result_constraint(
+    store: SQLServer_VectorStore,
+    texts: List[str],
+    metadatas: List[dict],
+) -> None:
+    """Test that the result from similarity_search_with_relevance_score
+    is capped between 0 and 1."""
+    store.add_texts(texts, metadatas)
+    result = store.similarity_search_with_relevance_scores("Good review")
+
+    for value in result:
+        assert (
+            value[1] >= 0 and value[1] <= 1
+        ), f"Relevance score {value[1]} not in range [0, 1]."
+
+
+def test_select_relevance_score_fn_returns_correct_relevance_function(
+    store: SQLServer_VectorStore,
+    docs: List[Document],
+) -> None:
+    """Test that `_select_relevance_score_fn` uses the appropriate
+    relevance function based on distance strategy provided."""
+    store.add_documents(docs)
+    result = store._select_relevance_score_fn()
+
+    # This vectorstore is initialized to use `COSINE` distance strategy,
+    # as such, the relevance function returned should be a
+    # cosine relevance function.
+    assert result == store._cosine_relevance_score_fn
+
+
+def test_select_relevance_score_fn_raises_exception_with_invalid_value(
+    store: SQLServer_VectorStore,
+    docs: List[Document],
+) -> None:
+    """Test that `_select_relevance_score_fn` raises a value error
+    if an invalid distance_strategy is provided."""
+    store.add_documents(docs)
+    store.distance_strategy = "InvalidDistanceStrategy"
+
+    # Invocation of `_select_relevance_score_fn` should raise a ValueError
+    # since the `distance_strategy` value is invalid.
+    with pytest.raises(ValueError):
+        store._select_relevance_score_fn()
+
+
 # We need to mock this so that actual connection is not attempted
 # after mocking _provide_token.
 @mock.patch("sqlalchemy.dialects.mssql.dialect.initialize")
@@ -776,7 +857,8 @@ def connect_to_vector_store(conn_string: str) -> SQLServer_VectorStore:
     return SQLServer_VectorStore(
         connection_string=conn_string,
         embedding_length=EMBEDDING_LENGTH,
-        # FakeEmbeddings returns embeddings of the same size as `embedding_length`.
-        embedding_function=FakeEmbeddings(size=EMBEDDING_LENGTH),
+        # DeterministicFakeEmbedding returns embeddings of the same
+        # size as `embedding_length`.
+        embedding_function=DeterministicFakeEmbedding(size=EMBEDDING_LENGTH),
         table_name=_TABLE_NAME,
     )
